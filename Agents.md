@@ -48,7 +48,7 @@ mobile remote control, and a unified global playlist view. It runs on both Windo
 | `tauri-plugin-sql` | SQLite access via Tauri commands |
 | `tauri-plugin-websocket` | WebSocket server for mobile remote control |
 | `tauri-plugin-oauth` | Handles TIDAL OAuth Authorization Code flow |
-| `tauri-plugin-stronghold` | Secure local storage for refresh tokens and credentials |
+| `tauri-plugin-keyring-store` | Secure token storage in the OS keychain (Secret Service / Credential Manager / Keychain) |
 | `reqwest` | HTTP client for proxying TIDAL API requests from Rust |
 | `serde` / `serde_json` | Serialization between Rust structs and TypeScript |
 | `tokio` | Async runtime for Rust |
@@ -240,7 +240,7 @@ waves-desktop/
 ### Phase 1 — TIDAL Authentication (3–4 days)
 - Implement the Authorization Code OAuth flow inside Rust (`src-tauri/src/commands/auth.rs`)
 - Use `tauri-plugin-oauth` to open the system browser and capture the callback
-- Store the refresh token securely using `tauri-plugin-stronghold`
+- Store the refresh token in the OS keychain via `tauri-plugin-keyring-store`
 - Expose a `get_access_token` Tauri command to the frontend
 - The frontend never holds credentials — only the Rust process communicates with TIDAL Auth
 
