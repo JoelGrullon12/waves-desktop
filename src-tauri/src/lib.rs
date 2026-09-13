@@ -12,6 +12,17 @@ fn load_env_file(path: &std::path::Path) -> bool {
     }
 }
 
+// Forwards frontend diagnostics to the app process stdout/stderr so they show
+// up in the `cargo tauri dev` terminal. WebKitGTK does not pipe webview console
+// output to the terminal, and a music player has no permanent log UI.
+#[tauri::command]
+fn cmd_log(level: String, message: String) {
+    match level.as_str() {
+        "error" => eprintln!("[waves-web] {}", message),
+        _ => println!("[waves-web] {}", message),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let env_candidates = [
@@ -37,10 +48,15 @@ pub fn run() {
         .plugin(tauri_plugin_oauth::init())
         .plugin(tauri_plugin_keyring_store::init())
         .invoke_handler(tauri::generate_handler![
+            cmd_log,
             commands::auth::cmd_login,
             commands::auth::cmd_get_access_token,
+            commands::auth::cmd_get_session_credentials,
             commands::auth::cmd_is_authenticated,
             commands::auth::cmd_logout,
+            commands::catalog::cmd_search_tracks,
+            commands::catalog::cmd_get_album_tracks,
+            commands::catalog::cmd_get_playlist_tracks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

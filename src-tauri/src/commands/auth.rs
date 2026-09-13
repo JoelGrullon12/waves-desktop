@@ -1,4 +1,4 @@
-use crate::models::tidal_auth::{AuthState, PkcePair, TidalTokenResponse};
+use crate::models::tidal_auth::{AuthState, PkcePair, SessionCredentials, TidalTokenResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
 use sha2::{Digest, Sha256};
@@ -19,11 +19,14 @@ const TOKEN_ACCOUNT: &str = "tidal.auth";
 // see AGENTS.md for the fallback flows if the portal rejects it.
 const TIDAL_OAUTH_PORT: u16 = 8899;
 const TIDAL_OAUTH_REDIRECT_PATH: &str = "/tidal-callback";
-// Scopes the client must have enabled in the dashboard. Kept to the minimum
-// needed for Phase 1; `playback`/`search.read` are re-added when catalog and
-// playback features land.
+// Scopes the client must have enabled in the dashboard. `playback` unlocks
+// full-track streaming for the TIDAL Web SDK player and `search.read` unlocks
+// the search endpoints used by the catalog proxy. Adding scopes requires the
+// user to re-authenticate once, since consent is bound to the scope set.
+// (Auth code + PKCE tokens are refreshed with the same scope set they were
+// originally granted, so old tokens keep working but without the new scopes.)
 const TIDAL_OAUTH_SCOPES: &str =
-    "user.read collection.read collection.write playlists.read playlists.write";
+    "user.read collection.read collection.write playlists.read playlists.write playback search.read";
 const TIDAL_OAUTH_TIMEOUT: Duration = Duration::from_secs(300);
 
 fn redirect_uri() -> String {
@@ -341,10 +344,31 @@ pub async fn cmd_login(app: AppHandle) -> Result<AuthState, String> {
 
 #[tauri::command]
 pub async fn cmd_get_access_token(app: AppHandle) -> Result<String, String> {
+    Ok(load_or_refresh_token(&app).await?.0)
+}
+
+// The TIDAL Web SDK player asks its CredentialsProvider for a token each time
+// it needs one. It also expects a userId for streaming privileges, so this
+// command returns both values that the SDK requires.
+#[tauri::command]
+pub async fn cmd_get_session_credentials(app: AppHandle) -> Result<SessionCredentials, String> {
+    let client_id = load_env_var("TIDAL_CLIENT_ID")?;
+    let (access_token, user_id) = load_or_refresh_token(&app).await?;
+    Ok(SessionCredentials {
+        access_token,
+        user_id,
+        client_id,
+    })
+}
+
+// Resolves an up-to-date access token from the keyring, refreshing it when
+// expired. Returns the access token together with the user id so the playback
+// layer can build SDK credentials without a second round trip.
+async fn load_or_refresh_token(app: &AppHandle) -> Result<(String, Option<u64>), String> {
     let client_id = load_env_var("TIDAL_CLIENT_ID")?;
     let client_secret = load_env_var("TIDAL_CLIENT_SECRET")?;
 
-    let token_data = load_token(&app).await?;
+    let token_data = load_token(app).await?;
     let token_data =
         token_data.ok_or_else(|| "Not authenticated. Call cmd_login first.".to_string())?;
 
@@ -354,11 +378,16 @@ pub async fn cmd_get_access_token(app: AppHandle) -> Result<String, String> {
         .unwrap()
         .as_secs();
 
+    let user_id = token_data["user_id"].as_u64();
+
     if now < expires_at {
-        return Ok(token_data["access_token"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string());
+        return Ok((
+            token_data["access_token"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            user_id,
+        ));
     }
 
     let refresh_token = token_data["refresh_token"].as_str().unwrap_or_default();
@@ -369,7 +398,7 @@ pub async fn cmd_get_access_token(app: AppHandle) -> Result<String, String> {
     let new_token = refresh_access_token(&client_id, &client_secret, refresh_token).await?;
     let new_refresh = new_token.refresh_token.clone().unwrap_or_default();
     store_token(
-        &app,
+        app,
         &new_token.access_token,
         &new_refresh,
         new_token.expires_in,
@@ -377,7 +406,7 @@ pub async fn cmd_get_access_token(app: AppHandle) -> Result<String, String> {
     )
     .await?;
 
-    Ok(new_token.access_token)
+    Ok((new_token.access_token, new_token.user_id))
 }
 
 #[tauri::command]

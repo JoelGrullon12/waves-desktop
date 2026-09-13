@@ -21,3 +21,10 @@ pub struct AuthState {
     pub is_authenticated: bool,
     pub user_id: Option<u64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionCredentials {
+    pub access_token: String,
+    pub user_id: Option<u64>,
+    pub client_id: String,
+}

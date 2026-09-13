@@ -1,7 +1,9 @@
 # Waves Desktop — AGENTS.md
 
 > This file is the single source of truth for any AI agent or developer working on this project.
-> Read it entirely before writing any code or making any architectural decision.
+> Read it **entirely** before writing any code or making any architectural decision.
+> The project is currently mid-migration from Tauri v2 to Electron. The target stack described
+> in this file is Electron — do not introduce Tauri/Rust code or revert to the old stack.
 
 ---
 
@@ -10,9 +12,45 @@
 **Waves Desktop** is a personal, self-hosted music player built on top of the TIDAL platform.
 It is intended exclusively for personal use by a single user — it will never be distributed publicly.
 
-Its core purpose is to provide a superior listening experience over the official TIDAL app by adding
-smart shuffle logic that prioritizes lesser-played songs, cross-device play count synchronization,
-mobile remote control, and a unified global playlist view. It runs on both Windows and Linux (Bazzite/Fedora-based).
+Its core purpose is to provide a superior listening experience over the official TIDAL app by adding:
+- Smart shuffle logic that prioritizes lesser-played songs (the most important feature)
+- Cross-device play count synchronization via cloud database
+- Mobile remote control from the phone browser (no app install required)
+- A unified global playlist combining liked tracks and playlist tracks
+- A dynamic favorites playlist of top-played tracks in a rolling time window
+
+It runs on **Windows and Linux (Bazzite/Fedora-based)** with identical behavior on both platforms.
+The app must be **plug-and-play**: clone, configure `.env`, `npm install`, `npm start` — done.
+No system-level dependencies beyond Node.js and the OS itself.
+
+---
+
+## Why Electron (and not Tauri)
+
+The project started on Tauri v2 + Rust but hit a **hard architectural blocker** on Linux:
+WebKitGTK — the only webview Tauri uses on Linux — does not implement EME
+(Encrypted Media Extensions). TIDAL streams are Widevine DRM-protected. Without
+`navigator.requestMediaKeySystemAccess`, the TIDAL Web SDK's Shaka Player cannot initialize
+any DRM key, so audio playback is impossible on Linux with Tauri. This is a platform
+limitation of WebKitGTK, not a configuration issue — there is no workaround.
+
+Electron solves this because it bundles Chromium, which implements EME natively. Using
+**Castlabs' Electron fork** (`@castlabs/electron-releases`), Widevine is bundled inside the
+binary itself — no CDM installation required on the user's system. This makes the app
+truly plug-and-play on both Windows and Linux.
+
+**What was preserved from the Tauri implementation:**
+- The entire React frontend (all components, views, stores, hooks, services)
+- All TIDAL v2 API knowledge, OAuth flow, and token handling logic
+- The product architecture, routing, and state management decisions
+
+**What changed:**
+- Desktop shell: Tauri/Rust → Electron (Node.js main process)
+- Token storage: `tauri-plugin-keyring-store` → Electron `safeStorage` (built-in, no extra deps)
+- IPC: `invoke()` Tauri commands → `ipcMain.handle()` / `contextBridge`
+- SQLite: `tauri-plugin-sql` → `better-sqlite3` (Node.js)
+- Build/package: `cargo tauri build` → `electron-builder`
+- Widevine: system CDM (unavailable on Linux) → bundled via Castlabs Electron fork
 
 ---
 
@@ -20,229 +58,226 @@ mobile remote control, and a unified global playlist view. It runs on both Windo
 
 Last updated: 2026-09-13
 
-### Done
-- **Phase 0 — Environment Setup:** Tauri v2 + React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
-  scaffolded. `cargo tauri dev` opens a working window.
-- **Phase 1 — TIDAL Authentication:** OAuth Authorization Code + PKCE flow in Rust
-  (`src-tauri/src/commands/auth.rs`) with `tauri-plugin-oauth`, CSRF `state` verification,
-  automatic token refresh, and logout. Tokens are stored in the **OS keyring** via
-  `tauri-plugin-keyring-store` (NOT plaintext files — see the Linux Keyring section below).
-  Frontend login screen with loading/error states in `src/store/sessionStore.ts` + `src/App.tsx`.
-- **Login verified end-to-end (2026-09-13):** `cmd_login` opens `login.tidal.com`, exchanges the
-  Authorization Code at `auth.tidal.com/v1/oauth2/token`, stores the token bundle in the OS keyring,
-  and the app lands on the "Authenticated (user: ...)" screen.
-  Two fixes were required to get here: (1) the `.env` loader resolved the file relative to the
-  process working directory, which `tauri dev` changes to `src-tauri/` — env loading is now
-  CWD-independent (`lib.rs`); (2) TIDAL rejected the OAuth request (`11102`) because the redirect URI
-  was a random loopback port. Login now uses a fixed, dashboard-registered
-  `http://127.0.0.1:8899/tidal-callback` (see "TIDAL OAuth Redirect URI" below).
-  The fixed port must stay free: `cmd_login` cancels the OAuth listener after the callback and
-  times out after 5 minutes, so a stuck login no longer blocks the port.
+### Completed (Tauri era — logic preserved, shell being replaced)
 
-### Next up
-- **Phase 2 — Functional Player MVP.** Kickoff checklist for a fresh session:
-  1. **Decide the TIDAL Web SDK distribution** (open question): `@tidal-music/player` +
-     `@tidal-music/auth` (official web SDK) vs the Rust player SDK vs proxying playback manifests
-     through `catalog.rs`. AGENTS.md requires the official Web SDK for full-track playback.
-  2. **Add a router** (open question): React Router vs TanStack Router — not installed yet.
-     Decide before building the views so URLs are stable.
-  3. Build the Zustand `playerStore` and `queueStore` (`src/store/`).
-  4. Wire playback with the access token from `getAccessToken` (`sessionStore.ts`). Note the
-     current client's scopes omit `playback`/`search.read`; re-login with an expanded scope will
-     be needed before full playlists play.
-  5. Add the `useMediaSession` hook (keyboard media keys).
-  6. Build core UI: player bar, track list, basic search, play/pause/skip/prev, queue panel.
-  7. Implement `catalog.rs` proxy commands (search/albums/playlists) using the Bearer token.
+- **Phase 0 — Environment scaffolding:** React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui.
+  All frontend tooling is in place and unchanged.
+- **Phase 1 — TIDAL Authentication:** OAuth Authorization Code + PKCE flow, CSRF state
+  verification, automatic token refresh, logout. Fixed redirect URI
+  `http://127.0.0.1:8899/tidal-callback` registered in the TIDAL dashboard.
+  Login verified end-to-end: opens `login.tidal.com`, exchanges the code at
+  `auth.tidal.com/v1/oauth2/token`, stores the token bundle securely, lands on authenticated state.
+  Two fixes were required: (1) `.env` loader was CWD-dependent (`tauri dev` changes CWD to
+  `src-tauri/`) — now CWD-independent; (2) TIDAL rejected OAuth with error `11102` when using
+  a random loopback port — fixed by using the registered fixed URI `http://127.0.0.1:8899/tidal-callback`.
+- **Phase 2 — Functional Player MVP:** TIDAL Web SDK (`@tidal-music/player ^0.20.1`) with a
+  custom credentials provider (NOT `@tidal-music/auth`). Zustand stores (`playerStore`,
+  `queueStore`, `sessionStore`). Catalog proxy to TIDAL v2 API for search, albums, playlists.
+  React Router v7. Full UI: AppShell, PlayerBar, QueuePanel, TrackList, SearchView (debounced),
+  AlbumView, PlaylistView, LibraryView. Media Session API for OS keyboard controls.
+  `npm run build` and `tsc --noEmit` pass.
+
+### In progress — Migration to Electron
+
+Migration has not started yet. The codebase at
+`/var/home/joelgrullon12/Projects/waves-desktop` still has the Tauri shell.
+Follow the Migration Plan section below in order.
+
+### Blocked (the reason the migration exists)
+
+Audio playback fails on Linux with Tauri: WebKitGTK has no EME/Widevine.
+`navigator.requestMediaKeySystemAccess` is undefined. The TIDAL SDK's `load()` rejects silently.
+Diagnostic layer confirmed: `playbackService.isDrmSupported()` returns false on Linux.
+**Resolution: migrate to Electron with Castlabs Widevine (see Migration Plan).**
 
 ---
 
 ## Tech Stack
 
-### Frontend
+### Frontend (unchanged from Tauri era)
 
 | Technology | Version | Role |
 |---|---|---|
-| React | 18+ | UI framework |
-| TypeScript | 5+ | Language (strict mode enabled) |
-| Vite | 5+ | Build tool and dev server |
-| Zustand | 4+ | Global state management (player state, queue, session) |
-| TanStack Query | 5+ | Server state, caching, background refetch for API calls |
-| Tailwind CSS | 3+ | Utility-first styling |
-| shadcn/ui | latest | Pre-built accessible component primitives |
-| TIDAL Web SDK | latest | Audio playback engine — the only permitted way to play full tracks |
+| React | 19 | UI framework |
+| TypeScript | 5+ | Language — strict mode enabled |
+| Vite | 5+ | Build tool via `electron-vite` |
+| Zustand | 4+ | Client state: player, queue, session |
+| TanStack Query | 5+ | Server state: catalog caching, background refetch |
+| Tailwind CSS | 4 | Utility-first styling |
+| shadcn/ui | latest | Accessible component primitives |
+| React Router | v7 (`react-router`) | Client-side routing |
+| TIDAL Web SDK | `@tidal-music/player ^0.20.1` | Audio playback — the only permitted playback path |
 
-### Desktop Shell
+### Desktop Shell (Electron)
 
-| Technology | Version | Role |
-|---|---|---|
-| Tauri | v2 | Wraps the React frontend into a native desktop app |
-| Rust | stable (via rustup) | Tauri backend process — handles OS-level logic |
-| WebView2 (Windows) | system | Native webview on Windows |
-| webkit2gtk (Linux) | system | Native webview on Linux/Bazzite |
-
-### Rust / Tauri Backend (inside the desktop process)
-
-| Crate / Plugin | Role |
+| Technology | Role |
 |---|---|
-| `tauri` | Core framework |
-| `tauri-plugin-sql` | SQLite access via Tauri commands |
-| `tauri-plugin-websocket` | WebSocket server for mobile remote control |
-| `tauri-plugin-oauth` | Handles TIDAL OAuth Authorization Code flow |
-| `tauri-plugin-keyring-store` | Secure token storage in the OS keychain (Secret Service / Credential Manager / Keychain) |
-| `reqwest` | HTTP client for proxying TIDAL API requests from Rust |
-| `serde` / `serde_json` | Serialization between Rust structs and TypeScript |
-| `tokio` | Async runtime for Rust |
+| `@castlabs/electron-releases` | Electron fork with Widevine bundled — **do not use `electron` npm package directly** |
+| `electron-vite` | Vite integration for main + preload + renderer processes |
+| `electron-builder` | Cross-platform packaging (.exe installer, .AppImage, .deb) |
+
+#### Why Castlabs and not standard Electron
+
+Standard `electron` does not bundle the Widevine CDM. Castlabs maintains a drop-in fork
+of Electron that includes Widevine with VMP (Verified Media Path) and persistent
+StorageID licenses. This is the same approach used by the open-source project
+**tidal-hifi** (github.com/Mastermindzh/tidal-hifi), which has verified Max quality
+(24-bit/192kHz HiRes FLAC) working on Linux with this exact mechanism since 2021.
+The Castlabs fork is a direct dependency swap — the Electron API is identical.
+
+```jsonc
+// package.json — critical dependency
+{
+  "devDependencies": {
+    "@castlabs/electron-releases": "^35.0.0",
+    "electron-vite": "^2.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
+```
+
+### Main Process (Node.js — replaces Rust/Tauri backend)
+
+| Module / Package | Role |
+|---|---|
+| `electron` (`safeStorage`) | Token encryption — AES-256, key tied to OS user. Built-in, no extra deps. |
+| `electron` (`ipcMain`) | IPC server — handles calls from the renderer process |
+| `axios` | HTTP proxy to TIDAL API v2 — credentials never touch the renderer |
+| `better-sqlite3` | Synchronous SQLite — play counts, preferences, queue state |
+| `@libsql/client` | Turso (cloud SQLite) client for cross-device sync |
+| `ws` | WebSocket server for mobile remote control |
+| `dotenv` | Loads `.env` at startup |
+
+### IPC Bridge
+
+A `contextBridge.ts` preload script exposes a typed `window.api` object to the renderer.
+Method names mirror the old Tauri `invoke()` calls so renderer changes are minimal.
+
+```typescript
+// electron/preload/contextBridge.ts — shape of window.api
+contextBridge.exposeInMainWorld('api', {
+  login: () => ipcRenderer.invoke('auth:login'),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+  getSessionCredentials: () => ipcRenderer.invoke('auth:get-session-credentials'),
+  searchTracks: (query: string) => ipcRenderer.invoke('catalog:search-tracks', query),
+  getAlbumTracks: (albumId: string) => ipcRenderer.invoke('catalog:get-album-tracks', albumId),
+  getPlaylistTracks: (playlistId: string) => ipcRenderer.invoke('catalog:get-playlist-tracks', playlistId),
+  incrementPlayCount: (trackId: string) => ipcRenderer.invoke('stats:increment-play-count', trackId),
+  getSmartShuffleQueue: (trackIds: string[]) => ipcRenderer.invoke('stats:get-smart-shuffle-queue', trackIds),
+})
+```
+
+Add the global type declaration to `src/types/global.d.ts`:
+```typescript
+declare global {
+  interface Window {
+    api: {
+      login: () => Promise<void>
+      logout: () => Promise<void>
+      getSessionCredentials: () => Promise<{ accessToken: string; userId: string; clientId: string }>
+      searchTracks: (query: string) => Promise<Track[]>
+      getAlbumTracks: (albumId: string) => Promise<Track[]>
+      getPlaylistTracks: (playlistId: string) => Promise<Track[]>
+      incrementPlayCount: (trackId: string) => Promise<void>
+      getSmartShuffleQueue: (trackIds: string[]) => Promise<string[]>
+    }
+  }
+}
+```
 
 ### Database
 
 | Technology | Role |
 |---|---|
-| SQLite (local) | Primary local database — play counts, user preferences, queue state |
-| Turso | Cloud-hosted SQLite for cross-device sync (uses libSQL protocol, same schema as local) |
+| SQLite via `better-sqlite3` | Local database — zero config, lives in `app.getPath('userData')` |
+| Turso (libSQL) | Cloud mirror of the same SQLite schema — cross-device sync |
 
-#### Core Schema
+#### Core Schema (unchanged from Tauri era)
 
 ```sql
--- Tracks how many times a specific track has been played by this user
-CREATE TABLE track_plays (
+CREATE TABLE IF NOT EXISTS track_plays (
     track_id        TEXT PRIMARY KEY,
     play_count      INTEGER NOT NULL DEFAULT 0,
-    last_played_at  TEXT -- ISO 8601 timestamp
+    last_played_at  TEXT
 );
 
--- User preferences and app configuration
-CREATE TABLE user_preferences (
+CREATE TABLE IF NOT EXISTS user_preferences (
     preference_key   TEXT PRIMARY KEY,
     preference_value TEXT NOT NULL
 );
 
--- Persistent playback queue across sessions
-CREATE TABLE queued_tracks (
+CREATE TABLE IF NOT EXISTS queued_tracks (
     position    INTEGER PRIMARY KEY,
     track_id    TEXT NOT NULL,
-    added_at    TEXT NOT NULL -- ISO 8601 timestamp
+    added_at    TEXT NOT NULL
 );
 ```
 
-### Cross-Device Sync
-
-| Technology | Role |
-|---|---|
-| Turso (libSQL) | Mirrors the local SQLite schema to the cloud |
-| `@libsql/client` | TypeScript SDK for Turso (used in Tauri commands via Rust or injected context) |
-
-Sync strategy: writes always go to Turso first, local SQLite is kept in sync on app launch
-and after each write. No conflict resolution is needed because this is a single-user app
-across devices owned by the same person.
+Sync strategy: writes go to both local SQLite and Turso. On startup, pull remote changes
+into local. No conflict resolution — single user, last write wins.
 
 ### Mobile Remote Control
 
 | Technology | Role |
 |---|---|
-| React (same codebase) | Mobile UI is a separate route/view within the same app served locally |
-| WebSocket (Tauri plugin) | Bidirectional communication between desktop and mobile browser |
-| QR Code | Generated by the desktop app to allow the phone to discover the local WebSocket URL |
+| React (same codebase, `/remote` route) | Mobile UI served locally from the Electron app |
+| `ws` WebSocket server | Real-time bidirectional channel: desktop ↔ phone |
+| QR code (generated in-app) | Phone scans to discover the local WebSocket URL |
 
-The phone opens the served PWA in its browser — no app installation required on mobile.
-The desktop Tauri app acts as both the WebSocket server and the static file server.
+Phone opens the PWA in its browser — no installation required.
 
 ### External Services
 
 | Service | Role |
 |---|---|
-| TIDAL API (`openapi.tidal.com/v2`) | Catalog, metadata, search, playlists, mixes |
-| TIDAL Auth (`auth.tidal.com/v1/oauth2`) | OAuth 2.0 — Authorization Code flow for full track access |
-| TIDAL Web SDK | Embedded in the frontend for actual audio playback |
+| `openapi.tidal.com/v2` | TIDAL v2 API — catalog, search, playlists, mixes (JSON:API) |
+| `auth.tidal.com/v1/oauth2` | OAuth 2.0 Authorization Code + PKCE |
+| `@tidal-music/player` | TIDAL Web SDK — audio playback with Widevine DRM |
+| Turso | Cloud SQLite for play count sync |
 
 ---
 
 ## Environment Variables
 
-These variables must be configured locally. They are never committed to source control.
-Create a `.env` file at the project root for the frontend, and a `src-tauri/.env` for the Rust process.
+Never commit these. Single `.env` file at the project root.
+The Electron main process loads it with `dotenv` at startup.
 
 ```env
 # TIDAL Application credentials (from https://developer.tidal.com/dashboard)
 TIDAL_CLIENT_ID=
 TIDAL_CLIENT_SECRET=
-TIDAL_REDIRECT_URI=
+TIDAL_REDIRECT_URI=http://127.0.0.1:8899/tidal-callback
 
 # Turso cloud database for cross-device sync
 TURSO_DATABASE_URL=
 TURSO_AUTH_TOKEN=
 
-# Local WebSocket server port for mobile remote control
-REMOTE_CONTROL_WEBSOCKET_PORT=
+# WebSocket port for mobile remote control
+REMOTE_CONTROL_WEBSOCKET_PORT=47836
 
-# Optional: override local SQLite file path
+# Optional: override SQLite file path (defaults to Electron userData dir)
 LOCAL_SQLITE_PATH=
 ```
 
 ---
 
-## TIDAL OAuth Redirect URI (Required to Log In)
+## TIDAL OAuth Redirect URI
 
-TIDAL rejects the Authorization Code + PKCE request (error `11102` on the login page)
-when the `redirect_uri` sent in the `/authorize` call does not match, exactly, a URI
-registered for the app in the [developer dashboard](https://developer.tidal.com/dashboard)
-(Manage apps). A random loopback port therefore can never work.
+TIDAL rejects the Authorization Code request (error `11102`) when the `redirect_uri` does not
+exactly match a URI registered in the developer dashboard.
 
-The app uses a **fixed loopback redirect** by default:
+**Fixed redirect URI in use:** `http://127.0.0.1:8899/tidal-callback`
 
-```
-http://127.0.0.1:8899/tidal-callback
-```
+Setup (one-time):
+1. Open your app in [TIDAL dashboard](https://developer.tidal.com/dashboard) → edit redirect URI
+   to exactly `http://127.0.0.1:8899/tidal-callback`.
+2. Enable scopes: `user.read`, `collection.read`, `collection.write`, `playlists.read`,
+   `playlists.write`, `playback`, `search.read`.
+3. Port and path are constants in `electron/main/auth.ts`. If changed, update both the
+   code and the dashboard registration.
 
-To make login work:
-
-1. Open the app that owns `TIDAL_CLIENT_ID` in the dashboard → edit its redirect URI to
-   the exact value above.
-2. Enable these scopes for the client: `user.read`, `collection.read`,
-   `collection.write`, `playlists.read`, `playlists.write`.
-3. The port/path can be changed, but they must be edited in **both** places:
-   - `auth.rs` — `TIDAL_OAUTH_PORT` / `TIDAL_OAUTH_REDIRECT_PATH`
-   - the dashboard registration
-
-`TIDAL_REDIRECT_URI` in `src-tauri/.env` overrides the compiled-in loopback value if set.
-Only the loopback route is wired to auto-capture the callback today; a non-loopback
-value (used with a "paste the URL" papercut flow) is not implemented yet.
-
-> If TIDAL's portal rejects loopback/HTTP URIs (the portal has, at times, enforced
-> "HTTPS only, no localhost, no query params"), the fallbacks are: (a) register an HTTPS
-> redirect you control and paste the callback URL into the app (papercut flow), or
-> (b) use the public TIDAL Android client id + `https://tidal.com/android/login/auth`
-> redirect (what `python-tidal`/`mopidy-tidal` do) — unsanctioned and can break at any time.
-
----
-
-## Linux Keyring & Secret Service (Required to Run the App Locally)
-
-On Linux the app stores TIDAL tokens through the OS keyring via `tauri-plugin-keyring-store`,
-which talks to the **Secret Service** (`org.freedesktop.secrets`) over the session DBus.
-If that service is not reachable, `cmd_login` fails at token storage. There is no code-side
-workaround — the desktop session must provide it.
-
-- **KDE Plasma:** KWallet provides the Secret Service, but the compatibility API is disabled by
-  default (`apiEnabled=false`). Enable it once:
-  ```bash
-  kwriteconfig6 --file kwalletrc --group org.freedesktop.secrets --key apiEnabled --type bool "true"
-  ```
-  then **log out and back in** (or restart the session) so `kwalletd6`/`ksecretd` re-read the config.
-  KWallet must be unlocked while the app runs; on first save KDE prompts to allow the app.
-- **GNOME:** GNOME Keyring provides the Secret Service automatically when unlocked at login.
-- **Windows/macOS:** no setup needed (Credential Manager / Keychain).
-
-### Verify it works
-```bash
-bash scripts/check-keyring.sh
-```
-The script detects the desktop environment, pings `org.freedesktop.secrets`, and prints the exact
-fix for the current environment. Successful output ends with:
-`[OK]  Secret Service (org.freedesktop.secrets) is reachable`.
-
-> Note: permissions for the keyring plugin are deliberately **not** exposed to the frontend
-> (no `keyring-store:allow-*` in `capabilities/default.json`). All token reads/writes happen only
-> inside Rust commands, keeping the "frontend never holds credentials" rule.
+Tokens minted before `playback` and `search.read` scopes were added are stale —
+log out and log in once to re-mint.
 
 ---
 
@@ -251,53 +286,70 @@ fix for the current environment. Successful output ends with:
 ```
 waves-desktop/
 ├── AGENTS.md                        # This file
-├── .env                             # Frontend env vars (never commit)
+├── .env                             # All env vars — never commit
 ├── .gitignore
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts
+├── electron-builder.yml             # Packaging: .exe (Windows), .AppImage + .deb (Linux)
 │
-├── src/                             # React frontend
-│   ├── main.tsx                     # React entry point
-│   ├── App.tsx                      # Root component, router setup
+├── electron/                        # Electron main + preload processes
+│   ├── main/
+│   │   ├── index.ts                 # Entry: creates BrowserWindow, registers all IPC handlers
+│   │   ├── auth.ts                  # OAuth PKCE, safeStorage token encryption/decryption, refresh
+│   │   ├── catalog.ts               # Proxy to TIDAL v2 API (search, albums, playlists, mixes)
+│   │   ├── playCountRepository.ts   # SQLite read/write for play counts
+│   │   ├── smartShuffle.ts          # Shuffle algorithm ordered by play count
+│   │   ├── database.ts              # SQLite connection, schema migrations (better-sqlite3)
+│   │   ├── tursoSync.ts             # Cloud sync on startup and after each write
+│   │   └── remoteControl.ts         # WebSocket server for mobile remote control
 │   │
-│   ├── assets/                      # Static assets (icons, fonts)
+│   └── preload/
+│       └── contextBridge.ts         # Exposes window.api to renderer via contextBridge
+│
+├── src/                             # React renderer process — largely unchanged from Tauri era
+│   ├── main.tsx
+│   ├── App.tsx
 │   │
-│   ├── components/                  # Reusable UI components
-│   │   ├── player/                  # Player bar, progress, volume
-│   │   ├── catalog/                 # Track lists, album grid, search
-│   │   ├── queue/                   # Queue panel, next-up list
+│   ├── components/
+│   │   ├── player/                  # PlayerBar, QueuePanel
+│   │   ├── layout/                  # AppShell, sidebar
+│   │   ├── tracks/                  # TrackList
+│   │   ├── catalog/                 # Album grid, search
 │   │   ├── remote/                  # Mobile remote control UI
-│   │   └── shared/                  # Generic shared components
+│   │   └── ui/                      # shadcn/ui primitives
 │   │
-│   ├── views/                       # Page-level components (routes)
+│   ├── lib/                         # Pure helpers (format, artwork URLs, media products)
+│   │
+│   ├── views/
+│   │   ├── LoginView.tsx
 │   │   ├── LibraryView.tsx
 │   │   ├── SearchView.tsx
-│   │   ├── PlaylistView.tsx
 │   │   ├── AlbumView.tsx
+│   │   ├── PlaylistView.tsx
 │   │   ├── MixesView.tsx
 │   │   ├── GlobalPlaylistView.tsx
-│   │   └── MobileRemoteView.tsx     # Served to phone browser
+│   │   └── MobileRemoteView.tsx     # Served to phone browser via /remote route
 │   │
-│   ├── store/                       # Zustand stores
-│   │   ├── playerStore.ts           # Current track, playing state, volume
-│   │   ├── queueStore.ts            # Queue array, add/remove/reorder
-│   │   └── sessionStore.ts          # Auth token, user info
+│   ├── store/
+│   │   ├── playerStore.ts
+│   │   ├── queueStore.ts
+│   │   └── sessionStore.ts
 │   │
-│   ├── services/                    # Data fetching and business logic
-│   │   ├── tidalCatalogService.ts   # Wraps TIDAL API endpoints
-│   │   ├── playbackService.ts       # TIDAL SDK integration
-│   │   ├── playCountService.ts      # Read/write play counts (local + Turso)
-│   │   ├── smartShuffleService.ts   # Shuffle algorithm using play counts
-│   │   ├── globalPlaylistService.ts # Assembles the unified global playlist
-│   │   └── remoteControlService.ts  # WebSocket client/server coordination
+│   ├── services/
+│   │   ├── tidalCatalogService.ts   # Calls window.api.* (was invoke())
+│   │   ├── playbackService.ts       # TIDAL Web SDK — unchanged
+│   │   ├── playCountService.ts      # Calls window.api for play count operations
+│   │   ├── smartShuffleService.ts   # Calls window.api.getSmartShuffleQueue
+│   │   ├── globalPlaylistService.ts
+│   │   └── remoteControlService.ts
 │   │
-│   ├── hooks/                       # Custom React hooks
-│   │   ├── useMediaSession.ts       # Registers Media Session API handlers
-│   │   ├── useSmartShuffle.ts       # Triggers shuffle on demand
-│   │   └── useRemoteControl.ts      # WebSocket lifecycle for remote
+│   ├── hooks/
+│   │   ├── useMediaSession.ts       # OS media keys — unchanged
+│   │   ├── useSmartShuffle.ts
+│   │   └── useRemoteControl.ts
 │   │
-│   └── types/                       # TypeScript interfaces and types
+│   └── types/
+│       ├── global.d.ts              # window.api type declaration
 │       ├── track.ts
 │       ├── playlist.ts
 │       ├── album.ts
@@ -305,132 +357,427 @@ waves-desktop/
 │       ├── playCount.ts
 │       └── remoteControlEvent.ts
 │
-└── src-tauri/                       # Rust / Tauri backend
-    ├── .env                         # Rust-side env vars (never commit)
-    ├── Cargo.toml
-    ├── tauri.conf.json
-    │
-    └── src/
-        ├── main.rs                  # Tauri app entry point, plugin registration
-        ├── state.rs                 # AppState struct shared across commands
-        │
-        ├── commands/                # Tauri commands callable from React via invoke()
-        │   ├── auth.rs              # TIDAL OAuth flow, token storage/refresh
-        │   ├── catalog.rs           # Proxy to TIDAL API (search, albums, playlists)
-        │   ├── play_counts.rs       # Read/write play counts to SQLite and Turso
-        │   ├── smart_shuffle.rs     # Shuffle algorithm — sorts tracks by play count
-        │   ├── remote_control.rs    # WebSocket server startup and event forwarding
-        │   └── database.rs          # SQLite setup, migrations, query helpers
-        │
-        └── models/                  # Rust structs that mirror TypeScript types
-            ├── track.rs
-            ├── play_count.rs
-            └── remote_control_event.rs
+└── resources/
+    ├── icon.png
+    ├── icon.ico
+    └── icon.icns
 ```
 
 ---
 
-## Development Phases (Ordered Roadmap)
+## Migration Plan: Tauri → Electron
 
-### Phase 0 — Environment Setup (1–2 days) ✅ Done
-- Install Rust via `rustup`
-- Install Node 20+ via `nvm`
-- Install Tauri system dependencies:
-  - Windows: Visual Studio Build Tools + WebView2 Runtime
-  - Linux (Bazzite/Fedora): `sudo dnf install webkit2gtk4.1-devel openssl-devel`
-- Scaffold the project: `npm create tauri-app@latest waves-desktop` — choose React + TypeScript + Vite
-- Install frontend dependencies: `zustand`, `@tanstack/react-query`, `tailwindcss`, `shadcn/ui`
-- Configure Tailwind in `vite.config.ts`
-- Verify that `cargo tauri dev` opens a working desktop window
+Complete these steps in order. Do not skip ahead.
+The migration is complete when a track plays with audio on Linux.
 
-### Phase 1 — TIDAL Authentication (3–4 days) ✅ Done
-- Implement the Authorization Code OAuth flow inside Rust (`src-tauri/src/commands/auth.rs`)
-- Use `tauri-plugin-oauth` to open the system browser and capture the callback
-- Store the refresh token in the OS keychain via `tauri-plugin-keyring-store`
-- Expose a `get_access_token` Tauri command to the frontend
-- The frontend never holds credentials — only the Rust process communicates with TIDAL Auth
+### Step 1 — Swap dependencies (half day)
 
-> Token storage migration note: earlier dev builds kept a plaintext `tokens.json` in the app data
-> dir. `load_token` in `auth.rs` auto-migrates any leftover file into the keyring and deletes it.
+```bash
+# Remove Tauri
+npm uninstall @tauri-apps/api
+# Remove any @tauri-apps/plugin-* packages
 
-### Phase 2 — Functional Player MVP (1 week)
-- Integrate the TIDAL Web SDK for playback in the React layer
-- Build the Zustand `playerStore` and `queueStore`
-- Implement `useMediaSession` hook to wire up keyboard media keys via the browser Media Session API
-- Build the core UI: player bar, track list, basic search, play/pause/skip/prev, queue panel
-- Implement the catalog proxy commands in Rust (`catalog.rs`) to fetch playlists, albums, search results
+# Add Electron toolchain (Castlabs fork — not the standard electron package)
+npm install --save-dev @castlabs/electron-releases electron-vite electron-builder
+
+# Add main process runtime dependencies
+npm install better-sqlite3 @libsql/client ws dotenv axios
+npm install --save-dev @types/better-sqlite3 @types/ws @types/node
+
+# Frontend dependencies stay as-is
+```
+
+Delete `src-tauri/` entirely once the main process is rewritten.
+
+### Step 2 — Configure electron-vite (half day)
+
+Replace `vite.config.ts` with an `electron-vite` config:
+
+```typescript
+// vite.config.ts
+import { defineConfig } from 'electron-vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineConfig({
+  main: { entry: 'electron/main/index.ts' },
+  preload: { entry: 'electron/preload/contextBridge.ts' },
+  renderer: { plugins: [react(), tailwindcss()] },
+})
+```
+
+Update `package.json`:
+```json
+{
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "package:linux": "npm run build && electron-builder --linux",
+    "package:win": "npm run build && electron-builder --win",
+    "typecheck": "tsc --noEmit"
+  }
+}
+```
+
+### Step 3 — Write the main process entry (1 day)
+
+Create `electron/main/index.ts`:
+
+```typescript
+import { app, BrowserWindow, ipcMain } from 'electron'
+import path from 'path'
+import dotenv from 'dotenv'
+import { registerAuthHandlers } from './auth'
+import { registerCatalogHandlers } from './catalog'
+import { registerPlayCountHandlers } from './playCountRepository'
+import { registerRemoteControlHandlers } from './remoteControl'
+import { initializeDatabase } from './database'
+import { syncFromTursoOnStartup } from './tursoSync'
+
+dotenv.config()
+
+async function createWindow(): Promise<void> {
+  await initializeDatabase()
+  await syncFromTursoOnStartup()
+
+  const mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/contextBridge.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.loadURL('http://localhost:5173')
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+  }
+}
+
+app.whenReady().then(() => {
+  registerAuthHandlers(ipcMain)
+  registerCatalogHandlers(ipcMain)
+  registerPlayCountHandlers(ipcMain)
+  registerRemoteControlHandlers(ipcMain)
+  createWindow()
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
+```
+
+### Step 4 — Port auth.ts (1 day)
+
+Port the OAuth PKCE flow from Rust to Node.js. The logic is identical — only the runtime changes.
+
+```typescript
+// electron/main/auth.ts (skeleton)
+import { shell, safeStorage, app } from 'electron'
+import http from 'http'
+import path from 'path'
+import fs from 'fs'
+import axios from 'axios'
+import crypto from 'crypto'
+import type { IpcMain } from 'electron'
+
+const OAUTH_PORT = 8899
+const OAUTH_REDIRECT_PATH = '/tidal-callback'
+const TOKEN_FILE_PATH = path.join(app.getPath('userData'), 'token.enc')
+
+// safeStorage encrypts with AES-256 using a key tied to the OS user account.
+// Works on Windows (DPAPI) and Linux (libsecret/KWallet via Electron's built-in integration).
+// No user configuration required on either platform — unlike tauri-plugin-keyring-store.
+function saveTokenBundle(tokenBundle: object): void {
+  const encryptedBuffer = safeStorage.encryptString(JSON.stringify(tokenBundle))
+  fs.writeFileSync(TOKEN_FILE_PATH, encryptedBuffer)
+}
+
+function loadTokenBundle(): object | null {
+  if (!fs.existsSync(TOKEN_FILE_PATH)) return null
+  const encryptedBuffer = fs.readFileSync(TOKEN_FILE_PATH)
+  return JSON.parse(safeStorage.decryptString(encryptedBuffer))
+}
+
+export function registerAuthHandlers(ipcMain: IpcMain): void {
+  ipcMain.handle('auth:login', async () => {
+    // 1. Generate PKCE code verifier and challenge
+    // 2. Build authorization URL with client_id, redirect_uri, scopes, code_challenge
+    // 3. shell.openExternal(authorizationUrl)
+    // 4. Start http.createServer on OAUTH_PORT — wait for GET OAUTH_REDIRECT_PATH
+    // 5. Extract `code` and `state` from query params, verify CSRF state
+    // 6. POST to auth.tidal.com/v1/oauth2/token with code + code_verifier
+    // 7. saveTokenBundle({ accessToken, refreshToken, expiresAt, userId, clientId })
+    // 8. Close the callback server
+  })
+
+  ipcMain.handle('auth:logout', async () => {
+    if (fs.existsSync(TOKEN_FILE_PATH)) fs.unlinkSync(TOKEN_FILE_PATH)
+  })
+
+  ipcMain.handle('auth:get-session-credentials', async () => {
+    const tokenBundle = loadTokenBundle() as any
+    if (!tokenBundle) return null
+    // Auto-refresh if within 60 seconds of expiry
+    return {
+      accessToken: tokenBundle.accessToken,
+      userId: tokenBundle.userId,
+      clientId: process.env.TIDAL_CLIENT_ID,
+    }
+  })
+}
+```
+
+### Step 5 — Port catalog.ts (half day)
+
+Port `commands/catalog.rs` to TypeScript. Logic and v2 API calls are identical.
+
+Critical TIDAL v2 API knowledge to preserve:
+- Base URL: `https://openapi.tidal.com/v2`
+- Auth: `Authorization: Bearer <access_token>`, `Content-Type: application/vnd.tidal.v1+json`
+- Track IDs are opaque strings. Durations are ISO 8601 (`PT2M58S`) — parse to seconds.
+- Search: `GET /searchResults?query=...&include=tracks,tracks.albums,tracks.artists`
+  Use the relevance order from the `tracks` relationship array, not the `included` array.
+- Album tracks: `GET /albums/{id}/relationships/items?include=items.albums,items.artists`
+- Playlist tracks: `GET /playlists/{id}/relationships/items?include=items.albums,items.artists`
+- Album items have `trackNumber` and `volumeNumber` in their `meta` object.
+- **Do NOT use v1 API** (`api.tidal.com/v1`) — it rejects modern tokens with 403/11004.
+
+### Step 6 — Write database.ts (half day)
+
+```typescript
+// electron/main/database.ts
+import Database from 'better-sqlite3'
+import path from 'path'
+import { app } from 'electron'
+
+let databaseConnection: Database.Database
+
+export function initializeDatabase(): void {
+  const databasePath = process.env.LOCAL_SQLITE_PATH
+    ?? path.join(app.getPath('userData'), 'waves-desktop.db')
+
+  databaseConnection = new Database(databasePath)
+
+  databaseConnection.exec(`
+    CREATE TABLE IF NOT EXISTS track_plays (
+      track_id        TEXT PRIMARY KEY,
+      play_count      INTEGER NOT NULL DEFAULT 0,
+      last_played_at  TEXT
+    );
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      preference_key   TEXT PRIMARY KEY,
+      preference_value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS queued_tracks (
+      position    INTEGER PRIMARY KEY,
+      track_id    TEXT NOT NULL,
+      added_at    TEXT NOT NULL
+    );
+  `)
+}
+
+export function getDatabase(): Database.Database {
+  return databaseConnection
+}
+```
+
+### Step 7 — Write contextBridge.ts (half day)
+
+```typescript
+// electron/preload/contextBridge.ts
+import { contextBridge, ipcRenderer } from 'electron'
+
+contextBridge.exposeInMainWorld('api', {
+  login: () => ipcRenderer.invoke('auth:login'),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+  getSessionCredentials: () => ipcRenderer.invoke('auth:get-session-credentials'),
+  searchTracks: (query: string) => ipcRenderer.invoke('catalog:search-tracks', query),
+  getAlbumTracks: (albumId: string) => ipcRenderer.invoke('catalog:get-album-tracks', albumId),
+  getPlaylistTracks: (playlistId: string) =>
+    ipcRenderer.invoke('catalog:get-playlist-tracks', playlistId),
+  incrementPlayCount: (trackId: string) =>
+    ipcRenderer.invoke('stats:increment-play-count', trackId),
+  getSmartShuffleQueue: (trackIds: string[]) =>
+    ipcRenderer.invoke('stats:get-smart-shuffle-queue', trackIds),
+})
+```
+
+### Step 8 — Update renderer call sites (half day)
+
+Find every `invoke(...)` call from `@tauri-apps/api/core` in `src/` and replace with `window.api.*`.
+This is mechanical — the logic does not change.
+
+```typescript
+// Before (Tauri)
+import { invoke } from '@tauri-apps/api/core'
+const tracks = await invoke<Track[]>('search_tracks', { query })
+
+// After (Electron)
+const tracks = await window.api.searchTracks(query)
+```
+
+Also remove all `@tauri-apps/*` imports from the renderer.
+
+### Step 9 — Verify Widevine (1 day)
+
+This is the primary goal. After the Electron shell runs:
+
+1. `npm run dev` — confirm the window opens and login works.
+2. Open DevTools (Ctrl+Shift+I) and run:
+```javascript
+navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{
+  initDataTypes: ['cenc'],
+  videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }]
+}]).then(() => console.log('Widevine OK')).catch(e => console.error('Widevine missing', e))
+```
+3. If "Widevine OK" — play a track and confirm audio plays.
+4. If error — confirm `@castlabs/electron-releases` is installed (not `electron`).
+5. Once audio works, optionally change quality in `playbackService.ts` from `HIGH` to `MAX`
+   for HiRes FLAC (24-bit/192kHz).
+
+### Step 10 — Package for Windows and Linux (half day)
+
+```yaml
+# electron-builder.yml
+appId: com.personal.waves-desktop
+productName: Waves Desktop
+directories:
+  output: dist
+
+# Point electron-builder to the Castlabs fork
+electronDist: node_modules/@castlabs/electron-releases/dist
+
+win:
+  target: nsis
+  icon: resources/icon.ico
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: resources/icon.png
+  category: Audio
+```
+
+---
+
+## Development Phases (Full Roadmap)
+
+### Phase 0 — Environment Setup ✅ Done
+React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui scaffolded.
+
+### Phase 1 — TIDAL Authentication ✅ Done (logic preserved, shell migrating)
+OAuth PKCE, fixed redirect URI, token storage, auto-refresh, logout. Verified end-to-end.
+
+### Phase 2 — Functional Player MVP ✅ Done (logic preserved, shell migrating)
+TIDAL Web SDK, Zustand stores, TIDAL v2 API catalog proxy, React Router v7, full player UI,
+Media Session API, search, album/playlist views.
+
+### Phase M — Electron Migration 🔄 In Progress
+Follow Migration Plan Steps 1–10 above.
+Milestone: app opens, user logs in, track plays with audio on Linux.
 
 ### Phase 3 — Smart Shuffle + Local Stats (4–5 days)
-- Set up SQLite via `tauri-plugin-sql` and run the initial schema migrations
-- Implement `play_counts.rs` — increment count when a track completes (not on start, to avoid counting skips)
-- Implement the smart shuffle algorithm in `smart_shuffle.rs`:
-  - Fetch play counts for all tracks in the current context
-  - Assign tracks with no record a play count of zero (highest priority)
-  - Group tracks into buckets by play count
-  - Shuffle randomly within each bucket
-  - Concatenate buckets from lowest to highest play count
-  - This avoids a robotic strictly-ordered feel while still balancing plays over time
-- Expose the shuffled queue to the frontend via Tauri command
+*Start after Phase M is complete.*
+
+- `playCountRepository.ts`: increment play count when a track plays past 30 seconds.
+  Use the SDK's `media-product-transition` event as the signal (not track start).
+- `smartShuffle.ts` algorithm:
+  1. Query play counts for all track IDs in the current context.
+  2. Tracks with no record get play count = 0 (highest priority).
+  3. Group into buckets by play count.
+  4. Shuffle randomly within each bucket (avoids robotic feel while still balancing plays).
+  5. Concatenate buckets from lowest to highest play count.
+  6. Return the ordered list to the renderer as the new queue.
+- The 30-second threshold is stored in `user_preferences` and is adjustable.
 
 ### Phase 4 — Cloud Sync with Turso (2–3 days)
-- Create a Turso database with the same schema as local SQLite
-- Configure `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`
-- On app startup: pull remote changes into local SQLite
-- On every play count write: write to both local SQLite and Turso
-- No conflict resolution logic needed — single user, last write wins
+- Create a Turso database (free tier is sufficient for a single user).
+- `tursoSync.ts`: on startup, pull remote rows into local. On each play count write, also
+  write to Turso. No conflict resolution — last write wins.
+- Requires `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in `.env`.
 
 ### Phase 5 — Mobile Remote Control (3–4 days)
-- Start a local WebSocket server from `remote_control.rs` on app launch
-- The `MobileRemoteView` React component is a separate route served locally by Tauri
-- Desktop generates a QR code containing its local IP and WebSocket port
-- Phone scans the QR and opens the PWA in its browser
-- WebSocket events: `play`, `pause`, `next`, `previous`, `set_volume`, `state_sync`
-- Desktop pushes `state_sync` events (current track, artwork, progress) to all connected clients
+- `remoteControl.ts`: `ws` WebSocket server on `REMOTE_CONTROL_WEBSOCKET_PORT`.
+- `MobileRemoteView.tsx`: React route at `/remote` — phone opens this in its browser.
+- Desktop generates a QR code with local IP + WebSocket port. Phone scans to pair.
+- Events: `play`, `pause`, `next`, `previous`, `set_volume`, `state_sync`.
+- Desktop pushes `state_sync` (track, artwork URL, progress, volume) on every state change.
 
 ### Phase 6 — Global Playlist & Favorites (3–4 days)
-- Global playlist: union of all liked tracks + all tracks across all playlists (deduplicated)
-- Favorites playlist: top N tracks by play count within a configurable rolling time window (e.g. last 30 days)
-- Both are computed on demand from the local SQLite data and the TIDAL catalog
+- Global playlist: union of all liked tracks + tracks in all playlists, deduplicated by track ID.
+  Computed on demand from TIDAL v2 API calls.
+- Favorites playlist: top N tracks by `play_count` with `last_played_at` in the last 30 days.
+  Computed from local SQLite — no API calls. Window is user-configurable via `user_preferences`.
+- Both playlists are virtual — never written back to TIDAL.
 
 ---
 
 ## Architectural Decisions
 
-### Why Rust handles all TIDAL communication, not the frontend
-The `client_secret` and OAuth tokens must never be exposed to the browser/webview layer.
-All HTTP requests to TIDAL APIs go through Tauri commands (Rust), which act as a local proxy.
-The frontend calls `invoke('get_albums', { query })` and receives clean typed data back.
+### Why Castlabs Electron
+Standard Electron requires Widevine to be installed on the system, which is not guaranteed
+on all Linux distros (and absent on Bazzite by default). Castlabs bundles Widevine into the
+binary with VMP and StorageID, making the app self-contained on both Windows and Linux.
+Proven in production by tidal-hifi since 2021, with confirmed Max quality (HiRes FLAC
+24-bit/192kHz) support on Linux.
 
-### Why no separate backend server
-This is a single-user personal app. Running a separate HTTP server process adds operational
-complexity with no benefit. Tauri's Rust process replaces the backend entirely — it has full
-OS access, can make HTTP requests, manage files, run WebSocket servers, and access secure storage.
+### Why Widevine L3 is not a quality limitation for audio
+Widevine L3 restricts video resolution (L3 sessions are capped at SD by content licensing
+contracts). For audio, no equivalent contractual restriction exists — TIDAL's license servers
+grant L3 sessions access to full Max quality audio. This has been confirmed in production
+by tidal-hifi users on Linux streaming at 24-bit/192kHz.
 
-### Why SQLite + Turso instead of a hosted database
-SQLite is zero-config and co-located with the app binary. Turso provides the same SQLite dialect
-in the cloud, making sync trivially simple — same queries, same schema, different connection string.
-No ORM is needed; raw SQL is preferred for clarity and control.
+### Token storage: safeStorage
+`safeStorage` is built into Electron. It uses DPAPI on Windows and libsecret/KWallet on
+Linux via Electron's own integration — no user-facing configuration needed. This is a
+significant improvement over `tauri-plugin-keyring-store`, which required manually enabling
+KWallet's Secret Service API on KDE. The encrypted blob is written to a file in
+`app.getPath('userData')` — the file is useless without the OS user's key.
 
-### Why Zustand over Redux or NgRx
-The player state is a flat, synchronous store that a handful of components read from.
-Zustand handles this with minimal ceremony. Redux adds indirection (actions, reducers, selectors)
-that only pays off in large team codebases. NgRx is Angular-specific and not applicable here.
+### Renderer never holds credentials
+`contextIsolation: true`, `nodeIntegration: false`. All credential access goes through
+`ipcMain` handlers. The renderer calls `window.api.*` and receives only the data it needs
+(never raw tokens). The main process is the single authority for credentials.
 
-### Why TanStack Query for API calls
-TIDAL catalog data (search results, playlist contents, album metadata) is remote server state —
-it needs caching, deduplication, background refresh, and loading/error states.
-TanStack Query provides all of this out of the box. Zustand is for client-owned state (the player),
-TanStack Query is for server-owned state (the catalog).
+### TIDAL v2 API only
+The v1 API (`api.tidal.com/v1`) rejects all dashboard-created clients with 403/11004
+(`Required scopes: r_usr`) because it validates against legacy scope names. There is no
+dashboard setting that grants legacy scopes. Use v2 (`openapi.tidal.com/v2`) exclusively.
 
-### Why the smart shuffle algorithm lives in Rust, not React
-The shuffle logic requires database access (play counts) and produces a potentially large ordered array.
-Keeping it in Rust avoids serializing large datasets across the Tauri bridge unnecessarily,
-and makes the algorithm testable with Rust's built-in test framework independently of the UI.
+### TIDAL Web SDK with custom credentials provider
+`@tidal-music/player` is the only permitted playback path. The custom `CredentialsProvider`
+calls `window.api.getSessionCredentials()` — the renderer never stores tokens.
+`@tidal-music/auth` is NOT used: it would duplicate auth state that the main process owns.
+
+### Smart shuffle in the main process
+The algorithm requires DB access and produces large arrays. Keeping it in Node.js avoids
+serializing large datasets across the IPC bridge and allows unit testing independently of the UI.
 
 ### Play count increment strategy
-A play is counted only when a track plays past 30 seconds of its duration (or reaches completion
-if shorter than 30 seconds). This mirrors industry convention and avoids counting accidental plays
-or rapid skips as listens. The threshold is stored in `user_preferences` and can be adjusted.
+A play is counted only when a track plays past 30 seconds. This matches industry convention
+and avoids inflating counts from skips. The threshold is stored in `user_preferences`.
+
+### No separate backend server
+Single-user personal app. The Electron main process replaces the backend entirely — it has
+full OS access, HTTP, SQLite, WebSocket, and secure storage. No server to run or deploy.
+
+### SQLite + Turso
+SQLite is zero-config, co-located with the app. Turso provides the same SQLite dialect in
+the cloud, making sync trivially simple. No ORM — raw SQL preferred for clarity and control.
+
+### Zustand + TanStack Query
+Zustand for client state (player, queue, session): flat, synchronous, minimal boilerplate.
+TanStack Query for server state (catalog): caching, deduplication, background refresh out of the box.
+
+### React Router v7
+Declarative mode, flat route tree, smaller learning surface.
+Routes: `/` (library), `/search`, `/albums/:id`, `/playlists/:id`, `/remote`.
 
 ---
 
@@ -440,96 +787,88 @@ or rapid skips as listens. The threshold is stored in `user_preferences` and can
 All code, comments, variable names, function names, file names, and commit messages are in English.
 
 ### Naming
-- Variables and functions: `camelCase`
-- Types and interfaces: `PascalCase`
-- Rust structs and enums: `PascalCase`
-- Rust functions and variables: `snake_case` (Rust convention)
+- TypeScript variables and functions: `camelCase`
+- TypeScript types and interfaces: `PascalCase`
 - Constants: `SCREAMING_SNAKE_CASE`
-- File names: `camelCase.ts` for TypeScript, `snake_case.rs` for Rust
-- No abbreviations. Names must be self-explanatory in their context without needing a comment.
-  - Bad: `trk`, `cnt`, `mgr`, `cfg`
-  - Good: `currentTrack`, `playCount`, `queueManager`, `userPreferences`
+- File names: `camelCase.ts`
+- No abbreviations. Names must be self-explanatory in context without needing a comment.
+  - Bad: `trk`, `cnt`, `mgr`, `cfg`, `db`
+  - Good: `currentTrack`, `playCount`, `queueManager`, `userPreferences`, `databaseConnection`
 
 ### Comments
-- Comments explain **why**, not what.
-- The **what** is only explained in comments for complex algorithms or non-obvious logic flows.
-- Do not comment obvious code. A well-named function needs no explanation of what it does.
-- Example of a good comment:
-  ```typescript
-  // We count a play only after 30 seconds to match industry convention and
-  // avoid inflating counts from accidental taps or rapid skips.
-  const minimumPlayDurationSeconds = 30;
-  ```
+- Explain **why**, not what.
+- Explain **what** only for complex algorithms or non-obvious flows.
+- Do not comment obvious code — a well-named function needs no explanation.
+
+```typescript
+// Good — explains why, not what
+// We count a play only after 30 seconds to match industry convention and
+// avoid inflating counts from accidental taps or rapid skips.
+const minimumPlayDurationSeconds = 30
+```
 
 ### Code Style
-- Readability is valued over brevity. A slightly longer but clearer expression is preferred.
-- Object-oriented programming is the primary paradigm. Use classes and services, not scattered functions.
-- Architecture leans toward N-layer (presentation → service → data access), following the conventions
-  of each layer's technology (React hooks/components for presentation, Zustand stores for state,
-  service classes for business logic, Tauri commands for data access).
-- **Result pattern** is used for all complex operations that can fail, especially in Rust and in
-  TypeScript service methods. Functions return `Result<T, E>` (Rust) or `{ data: T } | { error: string }`
-  (TypeScript) rather than throwing exceptions for expected failure cases.
-  ```typescript
-  // TypeScript Result pattern example
-  type Result<T> = { success: true; data: T } | { success: false; error: string };
+- Readability over brevity.
+- Object-oriented paradigm: classes and services, not scattered functions.
+- N-layer architecture: presentation (React) → service (business logic) → data access (IPC/DB).
+- **Result pattern** for all operations that can fail:
 
-  async function incrementPlayCount(trackId: string): Promise<Result<void>> {
-      try {
-          await database.run(/* ... */);
-          return { success: true, data: undefined };
-      } catch (cause) {
-          return { success: false, error: `Failed to increment play count for track ${trackId}` };
-      }
+```typescript
+type Result<T> = { success: true; data: T } | { success: false; error: string }
+
+async function incrementPlayCount(trackId: string): Promise<Result<void>> {
+  try {
+    getDatabase().prepare(
+      'INSERT INTO track_plays (track_id, play_count, last_played_at) VALUES (?, 1, ?) ' +
+      'ON CONFLICT(track_id) DO UPDATE SET play_count = play_count + 1, last_played_at = ?'
+    ).run(trackId, new Date().toISOString(), new Date().toISOString())
+    return { success: true, data: undefined }
+  } catch (cause) {
+    return { success: false, error: `Failed to increment play count for track ${trackId}: ${cause}` }
   }
-  ```
+}
+```
 
 ---
 
 ## Build & Test Scripts
 
 ```bash
-# Start the app in development mode (hot reload, opens desktop window)
-cargo tauri dev
-
-# Build the production desktop binary for the current platform
-cargo tauri build
-
-# Run the Vite dev server only (frontend without Tauri, useful for UI work)
+# Start in development mode (hot reload, opens Electron window)
 npm run dev
 
-# Type-check TypeScript without emitting files (no npm script defined yet)
-npx tsc --noEmit
+# Type-check TypeScript without emitting
+npm run typecheck
 
-# Verify the OS keyring/Secret Service is available (required for token storage on Linux)
-bash scripts/check-keyring.sh
+# Build all processes (main + preload + renderer)
+npm run build
+
+# Package for Linux (.AppImage + .deb)
+npm run package:linux
+
+# Package for Windows (.exe installer)
+npm run package:win
 
 # Run frontend unit tests
 npm run test
 
-# Run Rust unit tests (including smart shuffle algorithm tests)
-cargo test --manifest-path src-tauri/Cargo.toml
-
-# Lint TypeScript/React code
+# Lint TypeScript
 npm run lint
-
-# Format Rust code
-cargo fmt --manifest-path src-tauri/Cargo.toml
-
-# Check Rust code for errors without building
-cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 ---
 
-## Key Constraints & Limitations
+## Key Constraints
 
-- **TIDAL playback requires user authentication.** Client Credentials (app-level) only gives access
-  to catalog metadata and 30-second previews. Full track playback requires the user to log in with
-  their personal TIDAL account via Authorization Code OAuth flow.
-- **The TIDAL Web SDK must be used for playback.** Directly streaming audio from TIDAL's CDN
-  without the SDK violates their terms. The SDK handles DRM, stream URLs, and authentication.
-- **This app is for personal use only.** It must not be distributed, published to any app store,
-  or made accessible to users other than the owner. TIDAL's developer approval process is required
-  for any public distribution.
-- **The Turso free tier is sufficient** for a single-user play count database. No paid plan is needed.
+- **TIDAL playback requires user login.** Client Credentials only gives catalog access and
+  30-second previews. Full tracks require Authorization Code OAuth with the user's own account.
+- **Use the TIDAL Web SDK for playback.** Streaming directly from TIDAL's CDN violates terms.
+  The SDK handles DRM, stream URLs, and license acquisition.
+- **Personal use only.** Must not be distributed or made accessible to other users.
+- **Widevine on Linux is L3 (software DRM).** For audio, this imposes no quality restriction —
+  Max quality (HiRes FLAC 24-bit/192kHz) is available. L3 restrictions apply to video resolution,
+  not audio. Confirmed by tidal-hifi's production usage on Linux.
+- **Always use TIDAL v2 API.** v1 rejects all modern tokens with 403/11004.
+- **Always use `@castlabs/electron-releases`.** Never replace it with the standard `electron`
+  package — standard Electron does not bundle Widevine.
+- **Turso free tier is sufficient** for a single-user play count database.

@@ -2,6 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type { AuthState } from "@/types/auth";
 
+export interface SessionCredentials {
+  access_token: string;
+  user_id: number | null;
+  client_id: string;
+}
+
 interface SessionStore extends AuthState {
   isLoading: boolean;
   loggingIn: boolean;
@@ -10,6 +16,7 @@ interface SessionStore extends AuthState {
   login: () => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string>;
+  getSessionCredentials: () => Promise<SessionCredentials>;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -52,5 +59,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   getAccessToken: async () => {
     return await invoke("cmd_get_access_token");
+  },
+
+  getSessionCredentials: async () => {
+    return await invoke<SessionCredentials>("cmd_get_session_credentials");
   },
 }));
