@@ -2,6 +2,8 @@ use crate::models::tidal_auth::{AuthState, PkcePair, TidalTokenResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_keyring_store::KeyringExt;
 use tauri_plugin_opener::OpenerExt;
@@ -9,6 +11,29 @@ use tauri_plugin_opener::OpenerExt;
 // Where the TIDAL token bundle is stored in the OS keyring (the service name
 // is the app bundle identifier, configured by the keyring-store plugin).
 const TOKEN_ACCOUNT: &str = "tidal.auth";
+
+// TIDAL requires the redirect URI to match exactly what is registered for the
+// client in the developer dashboard. A fixed loopback port and path keep the
+// value deterministic: register `http://127.0.0.1:8899/tidal-callback` there.
+// TIDAL still permits loopback registration with a specific port in most cases;
+// see AGENTS.md for the fallback flows if the portal rejects it.
+const TIDAL_OAUTH_PORT: u16 = 8899;
+const TIDAL_OAUTH_REDIRECT_PATH: &str = "/tidal-callback";
+// Scopes the client must have enabled in the dashboard. Kept to the minimum
+// needed for Phase 1; `playback`/`search.read` are re-added when catalog and
+// playback features land.
+const TIDAL_OAUTH_SCOPES: &str =
+    "user.read collection.read collection.write playlists.read playlists.write";
+const TIDAL_OAUTH_TIMEOUT: Duration = Duration::from_secs(300);
+
+fn redirect_uri() -> String {
+    std::env::var("TIDAL_REDIRECT_URI").unwrap_or_else(|_| {
+        format!(
+            "http://127.0.0.1:{}{}",
+            TIDAL_OAUTH_PORT, TIDAL_OAUTH_REDIRECT_PATH
+        )
+    })
+}
 
 fn generate_pkce_pair() -> PkcePair {
     let code_verifier: String = rand::thread_rng()
@@ -29,13 +54,13 @@ fn generate_pkce_pair() -> PkcePair {
 }
 
 fn load_env_var(key: &str) -> Result<String, String> {
-    std::env::var(key)
-        .map_err(|_| format!("Missing env var: {}. Set it in src-tauri/.env", key))
+    std::env::var(key).map_err(|_| format!("Missing env var: {}. Set it in src-tauri/.env", key))
 }
 
 fn build_authorize_url(
     client_id: &str,
     redirect_uri: &str,
+    scope: &str,
     code_challenge: &str,
     state: &str,
 ) -> String {
@@ -47,11 +72,12 @@ fn build_authorize_url(
          code_challenge_method=S256&\
          code_challenge={}&\
          state={}&\
-         scope=playback%20collection.read%20collection.write%20playlists.read%20playlists.write%20user.read%20search.read",
+         scope={}",
         urlencoding(client_id),
         urlencoding(redirect_uri),
         code_challenge,
         state,
+        scope.replace(' ', "%20"),
     )
 }
 
@@ -228,22 +254,45 @@ pub async fn cmd_login(app: AppHandle) -> Result<AuthState, String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<String>();
     let mut tx = Some(tx);
 
-    let port = tauri_plugin_oauth::start(move |url| {
-        if let Some(tx) = tx.take() {
-            let _ = tx.send(url);
-        }
-    })
+    let port = tauri_plugin_oauth::start_with_config(
+        tauri_plugin_oauth::OauthConfig {
+            ports: Some(vec![TIDAL_OAUTH_PORT]),
+            response: Some(Cow::Borrowed(
+                "<!DOCTYPE html><html><body>Login complete — return to Waves Desktop.</body></html>",
+            )),
+        },
+        move |url| {
+            if let Some(tx) = tx.take() {
+                let _ = tx.send(url);
+            }
+        },
+    )
     .map_err(|e| format!("Failed to start OAuth server: {}", e))?;
 
-    let redirect_uri = format!("http://127.0.0.1:{}", port);
-    let authorize_url =
-        build_authorize_url(&client_id, &redirect_uri, &pkce.code_challenge, &state_param);
+    let redirect_uri = redirect_uri();
+    let authorize_url = build_authorize_url(
+        &client_id,
+        &redirect_uri,
+        TIDAL_OAUTH_SCOPES,
+        &pkce.code_challenge,
+        &state_param,
+    );
 
     app.opener()
         .open_url(&authorize_url, None::<&str>)
         .map_err(|e| format!("Failed to open browser: {}", e))?;
 
-    let callback_url = rx.await.map_err(|_| "OAuth callback cancelled".to_string())?;
+    let callback_url = match tokio::time::timeout(TIDAL_OAUTH_TIMEOUT, rx).await {
+        Ok(Ok(url)) => url,
+        Ok(Err(_)) => {
+            let _ = tauri_plugin_oauth::cancel(port);
+            return Err("OAuth callback cancelled".to_string());
+        }
+        Err(_) => {
+            let _ = tauri_plugin_oauth::cancel(port);
+            return Err("Timed out waiting for the OAuth callback".to_string());
+        }
+    };
 
     let parsed_url =
         url::Url::parse(&callback_url).map_err(|e| format!("Invalid callback URL: {}", e))?;
@@ -317,8 +366,7 @@ pub async fn cmd_get_access_token(app: AppHandle) -> Result<String, String> {
         return Err("No refresh token available. Re-authenticate.".to_string());
     }
 
-    let new_token =
-        refresh_access_token(&client_id, &client_secret, refresh_token).await?;
+    let new_token = refresh_access_token(&client_id, &client_secret, refresh_token).await?;
     let new_refresh = new_token.refresh_token.clone().unwrap_or_default();
     store_token(
         &app,

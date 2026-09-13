@@ -16,6 +16,46 @@ mobile remote control, and a unified global playlist view. It runs on both Windo
 
 ---
 
+## Current Status
+
+Last updated: 2026-09-13
+
+### Done
+- **Phase 0 — Environment Setup:** Tauri v2 + React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
+  scaffolded. `cargo tauri dev` opens a working window.
+- **Phase 1 — TIDAL Authentication:** OAuth Authorization Code + PKCE flow in Rust
+  (`src-tauri/src/commands/auth.rs`) with `tauri-plugin-oauth`, CSRF `state` verification,
+  automatic token refresh, and logout. Tokens are stored in the **OS keyring** via
+  `tauri-plugin-keyring-store` (NOT plaintext files — see the Linux Keyring section below).
+  Frontend login screen with loading/error states in `src/store/sessionStore.ts` + `src/App.tsx`.
+- **Login verified end-to-end (2026-09-13):** `cmd_login` opens `login.tidal.com`, exchanges the
+  Authorization Code at `auth.tidal.com/v1/oauth2/token`, stores the token bundle in the OS keyring,
+  and the app lands on the "Authenticated (user: ...)" screen.
+  Two fixes were required to get here: (1) the `.env` loader resolved the file relative to the
+  process working directory, which `tauri dev` changes to `src-tauri/` — env loading is now
+  CWD-independent (`lib.rs`); (2) TIDAL rejected the OAuth request (`11102`) because the redirect URI
+  was a random loopback port. Login now uses a fixed, dashboard-registered
+  `http://127.0.0.1:8899/tidal-callback` (see "TIDAL OAuth Redirect URI" below).
+  The fixed port must stay free: `cmd_login` cancels the OAuth listener after the callback and
+  times out after 5 minutes, so a stuck login no longer blocks the port.
+
+### Next up
+- **Phase 2 — Functional Player MVP.** Kickoff checklist for a fresh session:
+  1. **Decide the TIDAL Web SDK distribution** (open question): `@tidal-music/player` +
+     `@tidal-music/auth` (official web SDK) vs the Rust player SDK vs proxying playback manifests
+     through `catalog.rs`. AGENTS.md requires the official Web SDK for full-track playback.
+  2. **Add a router** (open question): React Router vs TanStack Router — not installed yet.
+     Decide before building the views so URLs are stable.
+  3. Build the Zustand `playerStore` and `queueStore` (`src/store/`).
+  4. Wire playback with the access token from `getAccessToken` (`sessionStore.ts`). Note the
+     current client's scopes omit `playback`/`search.read`; re-login with an expanded scope will
+     be needed before full playlists play.
+  5. Add the `useMediaSession` hook (keyboard media keys).
+  6. Build core UI: player bar, track list, basic search, play/pause/skip/prev, queue panel.
+  7. Implement `catalog.rs` proxy commands (search/albums/playlists) using the Bearer token.
+
+---
+
 ## Tech Stack
 
 ### Frontend
@@ -140,6 +180,72 @@ LOCAL_SQLITE_PATH=
 
 ---
 
+## TIDAL OAuth Redirect URI (Required to Log In)
+
+TIDAL rejects the Authorization Code + PKCE request (error `11102` on the login page)
+when the `redirect_uri` sent in the `/authorize` call does not match, exactly, a URI
+registered for the app in the [developer dashboard](https://developer.tidal.com/dashboard)
+(Manage apps). A random loopback port therefore can never work.
+
+The app uses a **fixed loopback redirect** by default:
+
+```
+http://127.0.0.1:8899/tidal-callback
+```
+
+To make login work:
+
+1. Open the app that owns `TIDAL_CLIENT_ID` in the dashboard → edit its redirect URI to
+   the exact value above.
+2. Enable these scopes for the client: `user.read`, `collection.read`,
+   `collection.write`, `playlists.read`, `playlists.write`.
+3. The port/path can be changed, but they must be edited in **both** places:
+   - `auth.rs` — `TIDAL_OAUTH_PORT` / `TIDAL_OAUTH_REDIRECT_PATH`
+   - the dashboard registration
+
+`TIDAL_REDIRECT_URI` in `src-tauri/.env` overrides the compiled-in loopback value if set.
+Only the loopback route is wired to auto-capture the callback today; a non-loopback
+value (used with a "paste the URL" papercut flow) is not implemented yet.
+
+> If TIDAL's portal rejects loopback/HTTP URIs (the portal has, at times, enforced
+> "HTTPS only, no localhost, no query params"), the fallbacks are: (a) register an HTTPS
+> redirect you control and paste the callback URL into the app (papercut flow), or
+> (b) use the public TIDAL Android client id + `https://tidal.com/android/login/auth`
+> redirect (what `python-tidal`/`mopidy-tidal` do) — unsanctioned and can break at any time.
+
+---
+
+## Linux Keyring & Secret Service (Required to Run the App Locally)
+
+On Linux the app stores TIDAL tokens through the OS keyring via `tauri-plugin-keyring-store`,
+which talks to the **Secret Service** (`org.freedesktop.secrets`) over the session DBus.
+If that service is not reachable, `cmd_login` fails at token storage. There is no code-side
+workaround — the desktop session must provide it.
+
+- **KDE Plasma:** KWallet provides the Secret Service, but the compatibility API is disabled by
+  default (`apiEnabled=false`). Enable it once:
+  ```bash
+  kwriteconfig6 --file kwalletrc --group org.freedesktop.secrets --key apiEnabled --type bool "true"
+  ```
+  then **log out and back in** (or restart the session) so `kwalletd6`/`ksecretd` re-read the config.
+  KWallet must be unlocked while the app runs; on first save KDE prompts to allow the app.
+- **GNOME:** GNOME Keyring provides the Secret Service automatically when unlocked at login.
+- **Windows/macOS:** no setup needed (Credential Manager / Keychain).
+
+### Verify it works
+```bash
+bash scripts/check-keyring.sh
+```
+The script detects the desktop environment, pings `org.freedesktop.secrets`, and prints the exact
+fix for the current environment. Successful output ends with:
+`[OK]  Secret Service (org.freedesktop.secrets) is reachable`.
+
+> Note: permissions for the keyring plugin are deliberately **not** exposed to the frontend
+> (no `keyring-store:allow-*` in `capabilities/default.json`). All token reads/writes happen only
+> inside Rust commands, keeping the "frontend never holds credentials" rule.
+
+---
+
 ## Project Directory Structure
 
 ```
@@ -226,7 +332,7 @@ waves-desktop/
 
 ## Development Phases (Ordered Roadmap)
 
-### Phase 0 — Environment Setup (1–2 days)
+### Phase 0 — Environment Setup (1–2 days) ✅ Done
 - Install Rust via `rustup`
 - Install Node 20+ via `nvm`
 - Install Tauri system dependencies:
@@ -237,12 +343,15 @@ waves-desktop/
 - Configure Tailwind in `vite.config.ts`
 - Verify that `cargo tauri dev` opens a working desktop window
 
-### Phase 1 — TIDAL Authentication (3–4 days)
+### Phase 1 — TIDAL Authentication (3–4 days) ✅ Done
 - Implement the Authorization Code OAuth flow inside Rust (`src-tauri/src/commands/auth.rs`)
 - Use `tauri-plugin-oauth` to open the system browser and capture the callback
 - Store the refresh token in the OS keychain via `tauri-plugin-keyring-store`
 - Expose a `get_access_token` Tauri command to the frontend
 - The frontend never holds credentials — only the Rust process communicates with TIDAL Auth
+
+> Token storage migration note: earlier dev builds kept a plaintext `tokens.json` in the app data
+> dir. `load_token` in `auth.rs` auto-migrates any leftover file into the keyring and deletes it.
 
 ### Phase 2 — Functional Player MVP (1 week)
 - Integrate the TIDAL Web SDK for playback in the React layer
@@ -389,8 +498,11 @@ cargo tauri build
 # Run the Vite dev server only (frontend without Tauri, useful for UI work)
 npm run dev
 
-# Type-check TypeScript without emitting files
-npm run typecheck
+# Type-check TypeScript without emitting files (no npm script defined yet)
+npx tsc --noEmit
+
+# Verify the OS keyring/Secret Service is available (required for token storage on Linux)
+bash scripts/check-keyring.sh
 
 # Run frontend unit tests
 npm run test
