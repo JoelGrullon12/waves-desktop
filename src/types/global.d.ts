@@ -15,6 +15,23 @@ declare global {
       searchTracks: (query: string) => Promise<Track[]>;
       getAlbumTracks: (albumId: string) => Promise<Track[]>;
       getPlaylistTracks: (playlistId: string) => Promise<Track[]>;
+      webLogin: () => Promise<{
+        success: boolean;
+        pending: boolean;
+        authorizeUrl?: string;
+        error?: string;
+      }>;
+      completeWebLogin: (
+        pasted: string,
+      ) => Promise<{ success: boolean; error?: string }>;
+      webLogout: () => Promise<{ success: boolean }>;
+      isWebSessionConnected: () => Promise<boolean>;
+      getWebSessionCredentials: () => Promise<{
+        client_id: string;
+        access_token: string;
+        user_id: string | null;
+      } | null>;
+      getWebPlaybackStream: (trackId: string) => Promise<string>;
     };
   }
 }

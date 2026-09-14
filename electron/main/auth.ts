@@ -258,10 +258,10 @@ export function registerAuthHandlers(): void {
   });
 
   ipcMain.handle("auth:get-session-credentials", async () => {
-    const tokenBundle = await getValidAccessToken();
-    if (!tokenBundle) return null;
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return null;
     return {
-      access_token: tokenBundle,
+      access_token: accessToken,
       client_id: CLIENT_ID,
       user_id: loadTokenBundle()?.userId ?? null,
     };

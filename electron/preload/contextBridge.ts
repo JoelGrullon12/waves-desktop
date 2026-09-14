@@ -14,4 +14,12 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("catalog:get-album-tracks", albumId),
   getPlaylistTracks: (playlistId: string) =>
     ipcRenderer.invoke("catalog:get-playlist-tracks", playlistId),
+
+  webLogin: () => ipcRenderer.invoke("web-auth:login"),
+  completeWebLogin: (pasted: string) => ipcRenderer.invoke("web-auth:complete-login", pasted),
+  webLogout: () => ipcRenderer.invoke("web-auth:logout"),
+  isWebSessionConnected: () => ipcRenderer.invoke("web-auth:is-connected"),
+  getWebSessionCredentials: () => ipcRenderer.invoke("web-auth:get-session-credentials"),
+  getWebPlaybackStream: (trackId: string) =>
+    ipcRenderer.invoke("web-auth:get-playback-stream", trackId),
 });

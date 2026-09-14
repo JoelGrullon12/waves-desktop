@@ -3,6 +3,7 @@ import path from "node:path";
 import { registerAuthHandlers } from "./auth";
 import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
+import { registerWebSessionHandlers } from "./webSessionAuth";
 
 // Electron is launched with `--no-sandbox` (see package.json scripts and
 // electron-builder.yml). On Linux, the npm-installed Electron fork has no SUID
@@ -49,6 +50,7 @@ app.whenReady().then(async () => {
 
   registerAuthHandlers();
   registerCatalogHandlers(ipcMain);
+  registerWebSessionHandlers();
   await createWindow();
 });
 

@@ -41,7 +41,22 @@ function buildCredentialsProvider(): CredentialsProvider {
   return {
     bus: () => {},
     getCredentials: async () => {
-      const credentials = await useSessionStore.getState().getSessionCredentials();
+      // When the first-party web session is connected, stream with its token:
+      // TIDAL ties FULL assetPresentation to the subscribed account behind that
+      // session, whereas the dashboard-app token only yields 30s previews.
+      const session = useSessionStore.getState();
+      if (session.isWebSessionConnected) {
+        const webCredentials = await session.getWebSessionCredentials();
+        if (webCredentials) {
+          return {
+            clientId: webCredentials.client_id,
+            token: webCredentials.access_token,
+            userId: webCredentials.user_id ?? undefined,
+            requestedScopes: [],
+          };
+        }
+      }
+      const credentials = await session.getSessionCredentials();
       if (!credentials) {
         throw new Error("No session credentials available.");
       }
