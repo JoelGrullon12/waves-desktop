@@ -48,7 +48,7 @@ truly plug-and-play on both Windows and Linux.
 - Desktop shell: Tauri/Rust → Electron (Node.js main process)
 - Token storage: `tauri-plugin-keyring-store` → Electron `safeStorage` (built-in, no extra deps)
 - IPC: `invoke()` Tauri commands → `ipcMain.handle()` / `contextBridge`
-- SQLite: `tauri-plugin-sql` → `better-sqlite3` (Node.js)
+- SQLite: `tauri-plugin-sql` → `node:sqlite` (built-in Node module)
 - Build/package: `cargo tauri build` → `electron-builder`
 - Widevine: system CDM (unavailable on Linux) → bundled via Castlabs Electron fork
 
@@ -56,7 +56,7 @@ truly plug-and-play on both Windows and Linux.
 
 ## Current Status
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 ### Completed (Tauri era — logic preserved, shell being replaced)
 
@@ -79,16 +79,64 @@ Last updated: 2026-09-13
 
 ### In progress — Migration to Electron
 
-Migration has not started yet. The codebase at
-`/var/home/joelgrullon12/Projects/waves-desktop` still has the Tauri shell.
-Follow the Migration Plan section below in order.
+Migration Plan Steps 1–8 are done and verified (dev shell, main process, auth,
+catalog, database, preload bridge, renderer call-sites). Step 9 (Widevine +
+playback) is functionally reached but has an open blocker (see below). Step 10
+(packaging) is pending.
 
-### Blocked (the reason the migration exists)
+Session achievements (2026-09-14):
+- Login works end-to-end on Electron. Fixed an ESM ordering bug: `auth.ts` read
+  `process.env.*` at module scope before `dotenv.config()` ran (imported modules
+  evaluate before the entry body runs). Fix: `dotenv.config()` lives at the top of
+  `electron/main/auth.ts`; `index.ts` no longer loads dotenv.
+- Playback starts. The TIDAL Web SDK threw "Playback not allowed without an event
+  sender" (`hasEventSender()` guard in `load`/`setNext`). Resolved with a noop
+  sender — `setEventSender({ sendEvent() {} })` in `src/services/playbackService.ts`.
+  This matches TIDAL's own demo; the SDK only invokes `sendEvent()`.
+- Volume bug fixed. The store keeps volume 0–100 but the SDK writes the value
+  directly to `HTMLMediaElement.volume` (range 0–1). Conversion by `/100` was added
+  at the `setVolume` handler and during player init in `src/store/playerStore.ts`.
+- Widevine auth verified over CDP: `navigator.requestMediaKeySystemAccess('com.widevine.alpha')`
+  resolves and the DRM-configured `load()` produces audio. See the Widevine section
+  for how the CDM got installed.
+- Working tree: ~19 uncommitted files on branch `feat/electron-migration`.
 
-Audio playback fails on Linux with Tauri: WebKitGTK has no EME/Widevine.
-`navigator.requestMediaKeySystemAccess` is undefined. The TIDAL SDK's `load()` rejects silently.
-Diagnostic layer confirmed: `playbackService.isDrmSupported()` returns false on Linux.
-**Resolution: migrate to Electron with Castlabs Widevine (see Migration Plan).**
+### Blocked
+
+**Historical (why the migration exists):** audio playback failed on Linux with
+Tauri because WebKitGTK has no EME/Widevine. That blocker is resolved under
+Electron — `isDrmSupported()` is true and EME/Widevine works. Keep this context;
+do not regress back to WebKitGTK.
+
+**Current (open): playback is capped at ~30 s per track.** Tracks play with audio
+and DRM, then stop around the 30 s mark even with a valid Authorization Code
+session. Hypothesis for next session: the dashboard app's access tier only
+authorizes *previews* for third-party apps — playbackinfo likely returns
+`assetPresentation: PREVIEW` with a 30 s stream, so full tracks are never granted.
+Next steps: capture the playbackinfo response (`assetPresentation`, duration) for
+a played track and compare with how tidal-hifi builds its playback requests; then
+decide whether full playback is achievable with this client or whether the
+milestone is re-scoped (e.g., preview-only playback for now).
+
+### Linux launch runbook (do not remove these flags)
+
+`npm run dev` and `npm start` bake two Chromium flags into the scripts
+(in `package.json`):
+
+- `--noSandbox` (electron-vite flag → puts `--no-sandbox` on Electron's argv).
+  WHY: the npm-installed fork ships a non-SUID `chrome-sandbox`; on
+  Fedora/Bazzite with SELinux enforcing, the Chromium zygote dies at startup
+  ("FATAL content/browser/zygote_host/zygote_host_impl_linux.cc:237" →
+  "Zygote process exited prematurely"). Verified: `app.commandLine.appendSwitch("no-sandbox")`
+  is IGNORED by this build — the flag must reach Electron's argv.
+- `-- --in-process-gpu` (electron-vite passthrough → `--in-process-gpu`).
+  WHY: on this Wayland session the separate GPU process fails to launch
+  ("GPU process launch failed: error_code=1002" then FATAL "GPU process isn't
+  usable"), even with `--disable-gpu`. In-process GPU boots reliably.
+
+Keep both in every dev/start script. When packaging (Step 10), replicate via
+`linux.executableArgs: ["--no-sandbox", "--in-process-gpu"]` in the
+electron-builder config.
 
 ---
 
@@ -118,23 +166,52 @@ Diagnostic layer confirmed: `playbackService.isDrmSupported()` returns false on 
 
 #### Why Castlabs and not standard Electron
 
-Standard `electron` does not bundle the Widevine CDM. Castlabs maintains a drop-in fork
-of Electron that includes Widevine with VMP (Verified Media Path) and persistent
-StorageID licenses. This is the same approach used by the open-source project
-**tidal-hifi** (github.com/Mastermindzh/tidal-hifi), which has verified Max quality
-(24-bit/192kHz HiRes FLAC) working on Linux with this exact mechanism since 2021.
-The Castlabs fork is a direct dependency swap — the Electron API is identical.
+Standard `electron` does not bundle the Widevine CDM. Castlabs maintains a drop-in
+fork of Electron called **Electron for Content Security (ECS)** that supports the
+Widevine CDM with VMP (Verified Media Path). This is the same approach used by the
+open-source project **tidal-hifi** (github.com/Mastermindzh/tidal-hifi), which has
+verified Max quality (24-bit/192kHz HiRes FLAC) working on Linux with Widevine since 2021.
+
+**Installation note (2026):** ECS is **not published on npm**. The old
+`@castlabs/electron-releases` npm package no longer exists. Install the fork directly
+from the GitHub tag (currently `v44.1.0+wvcus`). Because the repo's package name is
+`electron`, it installs into `node_modules/electron` and the `import 'electron'` API
+is identical to stock Electron:
 
 ```jsonc
 // package.json — critical dependency
 {
   "devDependencies": {
-    "@castlabs/electron-releases": "^35.0.0",
-    "electron-vite": "^2.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "github:castlabs/electron-releases#v44.1.0+wvcus",
+    "electron-vite": "^5.0.0",
+    "electron-builder": "^26.0.0"
   }
 }
 ```
+
+**How Widevine is delivered:** the `wvcus` builds do not embed the CDM in the binary.
+Designed behavior: on **first launch**, Electron's Component Updater downloads and
+installs the CDM; the main process awaits `components.whenReady()` before creating
+the `BrowserWindow`. In this environment that auto-install FAILED — `whenReady()`
+rejects with "No component available" even though Google's update endpoints are
+reachable (the updater returns no component for this request). `components.whenReady()`
+is wrapped in try/catch in `electron/main/index.ts` so the window still opens.
+
+**Working fallback (used on 2026-09-14):** pre-install an existing Widevine CDM into
+the app user data. Chromium accepts a CDM present on disk in the standard layout
+(a `<version>` directory holding `manifest.json` + `libwidevinecdm.so` under
+`WidevineCdm/`). Reuse the tidal-hifi CDM that already exists on this machine:
+
+```bash
+mkdir -p ~/.config/waves-desktop/WidevineCdm/4.10.3050.0
+cp -a ~/.var/app/com.mastermindzh.tidal-hifi/config/tidal-hifi/WidevineCdm/4.10.3050.0/. \
+  ~/.config/waves-desktop/WidevineCdm/4.10.3050.0/
+```
+
+After this copy, `components.whenReady()` no longer errors and EME resolves.
+`~/.config/waves-desktop` is the app's user data dir (app name `waves-desktop`).
+If it is ever deleted, re-run the copy (adjust `<version>` to whatever tidal-hifi
+ships at the time).
 
 ### Main Process (Node.js — replaces Rust/Tauri backend)
 
@@ -143,7 +220,7 @@ The Castlabs fork is a direct dependency swap — the Electron API is identical.
 | `electron` (`safeStorage`) | Token encryption — AES-256, key tied to OS user. Built-in, no extra deps. |
 | `electron` (`ipcMain`) | IPC server — handles calls from the renderer process |
 | `axios` | HTTP proxy to TIDAL API v2 — credentials never touch the renderer |
-| `better-sqlite3` | Synchronous SQLite — play counts, preferences, queue state |
+| `node:sqlite` (built-in) | Synchronous SQLite — play counts, preferences, queue state |
 | `@libsql/client` | Turso (cloud SQLite) client for cross-device sync |
 | `ws` | WebSocket server for mobile remote control |
 | `dotenv` | Loads `.env` at startup |
@@ -154,33 +231,41 @@ A `contextBridge.ts` preload script exposes a typed `window.api` object to the r
 Method names mirror the old Tauri `invoke()` calls so renderer changes are minimal.
 
 ```typescript
-// electron/preload/contextBridge.ts — shape of window.api
+// electron/preload/contextBridge.ts — current shape of window.api
 contextBridge.exposeInMainWorld('api', {
   login: () => ipcRenderer.invoke('auth:login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getSessionCredentials: () => ipcRenderer.invoke('auth:get-session-credentials'),
+  getAccessToken: () => ipcRenderer.invoke('auth:get-access-token'),
+  isAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),
   searchTracks: (query: string) => ipcRenderer.invoke('catalog:search-tracks', query),
   getAlbumTracks: (albumId: string) => ipcRenderer.invoke('catalog:get-album-tracks', albumId),
   getPlaylistTracks: (playlistId: string) => ipcRenderer.invoke('catalog:get-playlist-tracks', playlistId),
-  incrementPlayCount: (trackId: string) => ipcRenderer.invoke('stats:increment-play-count', trackId),
-  getSmartShuffleQueue: (trackIds: string[]) => ipcRenderer.invoke('stats:get-smart-shuffle-queue', trackIds),
 })
 ```
 
-Add the global type declaration to `src/types/global.d.ts`:
+The `stats:*` methods (`incrementPlayCount`, `getSmartShuffleQueue`) were deliberately
+stripped during the migration and will be re-added with the main-process repositories
+in Phase 3.
+
+The matching declaration lives in `src/types/global.d.ts`:
 ```typescript
 declare global {
   interface Window {
     api: {
-      login: () => Promise<void>
-      logout: () => Promise<void>
-      getSessionCredentials: () => Promise<{ accessToken: string; userId: string; clientId: string }>
-      searchTracks: (query: string) => Promise<Track[]>
-      getAlbumTracks: (albumId: string) => Promise<Track[]>
-      getPlaylistTracks: (playlistId: string) => Promise<Track[]>
-      incrementPlayCount: (trackId: string) => Promise<void>
-      getSmartShuffleQueue: (trackIds: string[]) => Promise<string[]>
-    }
+      login: () => Promise<{ isAuthenticated: boolean; userId: string | null }>;
+      logout: () => Promise<{ isAuthenticated: boolean }>;
+      isAuthenticated: () => Promise<boolean>;
+      getSessionCredentials: () => Promise<{
+        access_token: string;
+        client_id: string;
+        user_id: string | null;
+      } | null>;
+      getAccessToken: () => Promise<string | null>;
+      searchTracks: (query: string) => Promise<Track[]>;
+      getAlbumTracks: (albumId: string) => Promise<Track[]>;
+      getPlaylistTracks: (playlistId: string) => Promise<Track[]>;
+    };
   }
 }
 ```
@@ -189,7 +274,7 @@ declare global {
 
 | Technology | Role |
 |---|---|
-| SQLite via `better-sqlite3` | Local database — zero config, lives in `app.getPath('userData')` |
+| SQLite via `node:sqlite` | Local database — zero config, lives in `app.getPath('userData')` |
 | Turso (libSQL) | Cloud mirror of the same SQLite schema — cross-device sync |
 
 #### Core Schema (unchanged from Tauri era)
@@ -377,12 +462,14 @@ The migration is complete when a track plays with audio on Linux.
 npm uninstall @tauri-apps/api
 # Remove any @tauri-apps/plugin-* packages
 
-# Add Electron toolchain (Castlabs fork — not the standard electron package)
-npm install --save-dev @castlabs/electron-releases electron-vite electron-builder
+# Add Electron toolchain (Castlabs ECS fork via GitHub URL — see "Why Castlabs")
+npm install --save-dev "electron@github:castlabs/electron-releases#v44.1.0+wvcus" electron-vite electron-builder
 
 # Add main process runtime dependencies
-npm install better-sqlite3 @libsql/client ws dotenv axios
-npm install --save-dev @types/better-sqlite3 @types/ws @types/node
+npm install @libsql/client ws dotenv axios
+npm install --save-dev @types/ws @types/node
+
+# SQLite uses the built-in node:sqlite module — no native dependency to install.
 
 # Frontend dependencies stay as-is
 ```
@@ -425,7 +512,7 @@ Update `package.json`:
 Create `electron/main/index.ts`:
 
 ```typescript
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, components, ipcMain } from 'electron'
 import path from 'path'
 import dotenv from 'dotenv'
 import { registerAuthHandlers } from './auth'
@@ -458,12 +545,16 @@ async function createWindow(): Promise<void> {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Castlabs ECS: the Widevine CDM is fetched and installed by the Component
+  // Updater. Await it before creating the window so DRM is ready on first paint.
+  await components.whenReady()
+
   registerAuthHandlers(ipcMain)
   registerCatalogHandlers(ipcMain)
   registerPlayCountHandlers(ipcMain)
   registerRemoteControlHandlers(ipcMain)
-  createWindow()
+  await createWindow()
 })
 
 app.on('window-all-closed', () => {
@@ -551,17 +642,17 @@ Critical TIDAL v2 API knowledge to preserve:
 
 ```typescript
 // electron/main/database.ts
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import path from 'path'
 import { app } from 'electron'
 
-let databaseConnection: Database.Database
+let databaseConnection: DatabaseSync
 
 export function initializeDatabase(): void {
   const databasePath = process.env.LOCAL_SQLITE_PATH
     ?? path.join(app.getPath('userData'), 'waves-desktop.db')
 
-  databaseConnection = new Database(databasePath)
+  databaseConnection = new DatabaseSync(databasePath)
 
   databaseConnection.exec(`
     CREATE TABLE IF NOT EXISTS track_plays (
@@ -581,7 +672,7 @@ export function initializeDatabase(): void {
   `)
 }
 
-export function getDatabase(): Database.Database {
+export function getDatabase(): DatabaseSync {
   return databaseConnection
 }
 ```
@@ -650,7 +741,7 @@ directories:
   output: dist
 
 # Point electron-builder to the Castlabs fork
-electronDist: node_modules/@castlabs/electron-releases/dist
+electronDist: node_modules/electron/dist
 
 win:
   target: nsis
@@ -722,10 +813,15 @@ Milestone: app opens, user logs in, track plays with audio on Linux.
 
 ### Why Castlabs Electron
 Standard Electron requires Widevine to be installed on the system, which is not guaranteed
-on all Linux distros (and absent on Bazzite by default). Castlabs bundles Widevine into the
-binary with VMP and StorageID, making the app self-contained on both Windows and Linux.
+on all Linux distros (and absent on Bazzite by default). Castlabs' ECS fork downloads and
+installs the Widevine CDM automatically via its Component Updater on first launch, making
+the app self-contained on both Windows and Linux without any manual configuration.
 Proven in production by tidal-hifi since 2021, with confirmed Max quality (HiRes FLAC
 24-bit/192kHz) support on Linux.
+
+Caveat (2026-09-14): the automatic CDM Component Updater did not work in this
+environment (see "How Widevine is delivered" above). The practical delivery is
+copying an existing CDM into the app user data — still no source build required.
 
 ### Why Widevine L3 is not a quality limitation for audio
 Widevine L3 restricts video resolution (L3 sessions are capped at SD by content licensing
@@ -762,6 +858,9 @@ serializing large datasets across the IPC bridge and allows unit testing indepen
 ### Play count increment strategy
 A play is counted only when a track plays past 30 seconds. This matches industry convention
 and avoids inflating counts from skips. The threshold is stored in `user_preferences`.
+Caveat: while playback is capped at ~30 s (see Current Status → Blocked), count
+increments land exactly at the cap boundary — revisit the threshold once full-track
+playback is resolved.
 
 ### No separate backend server
 Single-user personal app. The Electron main process replaces the backend entirely — it has
@@ -835,7 +934,11 @@ async function incrementPlayCount(trackId: string): Promise<Result<void>> {
 
 ```bash
 # Start in development mode (hot reload, opens Electron window)
+# Linux: --noSandbox + --in-process-gpu are baked into this script (see Linux Runbook)
 npm run dev
+
+# Preview the production build (same Linux flags baked in)
+npm start
 
 # Type-check TypeScript without emitting
 npm run typecheck
@@ -862,6 +965,9 @@ npm run lint
 
 - **TIDAL playback requires user login.** Client Credentials only gives catalog access and
   30-second previews. Full tracks require Authorization Code OAuth with the user's own account.
+  Note (2026-09-14): with Authorization Code OAuth working, playback still stopped at
+  ~30 s per track — the app likely only receives PREVIEW asset presentation on its current
+  tier. See "Blocked" in Current Status for the open investigation.
 - **Use the TIDAL Web SDK for playback.** Streaming directly from TIDAL's CDN violates terms.
   The SDK handles DRM, stream URLs, and license acquisition.
 - **Personal use only.** Must not be distributed or made accessible to other users.

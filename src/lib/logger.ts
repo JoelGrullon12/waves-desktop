@@ -1,11 +1,12 @@
-import { invoke } from "@tauri-apps/api/core";
-
-// Forwards frontend diagnostics to the Rust process (cmd_log), which prints
-// them to stdout/stderr of `cargo tauri dev`. WebKitGTK does not forward
-// webview console output to the terminal, so without this there is no way to
-// see what the TIDAL Web SDK is doing on Linux.
+// Forwards frontend diagnostics straight to the DevTools console. Chromium
+// forwards console output to the Electron terminal with --enable-logging, so
+// playback diagnostics remain visible during development.
 export function logToTerminal(level: "info" | "error", message: string): void {
-  void invoke("cmd_log", { level, message }).catch(() => {});
+  if (level === "error") {
+    console.error(message);
+  } else {
+    console.info(message);
+  }
 }
 
 export function errorMessage(error: unknown): string {

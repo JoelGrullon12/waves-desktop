@@ -9,6 +9,7 @@ import {
   reset as resetPlayback,
   seek as seekTo,
   setCredentialsProvider,
+  setEventSender,
   setNext,
   setStreamingWifiAudioQuality,
   setVolumeLevel,
@@ -56,6 +57,13 @@ export class PlaybackService {
     });
     setCredentialsProvider(credentialsProvider);
     setStreamingWifiAudioQuality(DEFAULT_WIFI_AUDIO_QUALITY);
+
+    // The TIDAL Player SDK refuses to play (load/setNext check
+    // hasEventSender()) without an event sender set. It only ever calls
+    // sendEvent() on the sender, and analytics batching is out of scope for
+    // this app, so a noop sender is enough — the same pattern TIDAL's own
+    // demo uses for manual runs.
+    setEventSender({ sendEvent() {} } as unknown as Parameters<typeof setEventSender>[0]);
 
     events.addEventListener("media-product-transition", (event) => {
       const { mediaProduct, playbackContext } = (event as MediaProductTransition).detail;

@@ -42,10 +42,13 @@ function buildCredentialsProvider(): CredentialsProvider {
     bus: () => {},
     getCredentials: async () => {
       const credentials = await useSessionStore.getState().getSessionCredentials();
+      if (!credentials) {
+        throw new Error("No session credentials available.");
+      }
       return {
         clientId: credentials.client_id,
         token: credentials.access_token,
-        userId: credentials.user_id != null ? String(credentials.user_id) : undefined,
+        userId: credentials.user_id ?? undefined,
         requestedScopes: [],
       };
     },
@@ -122,15 +125,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     init: () => {
       if (get().isInitialized) return;
       playbackService.initialize(buildCredentialsProvider(), createStoreClient());
-      playbackService.setVolume(get().volume);
+      playbackService.setVolume(get().volume / 100);
       set({ isInitialized: true });
 
-      // WebKitGTK (Tauri's Linux webview) does not implement EME, so DRM
-      // protected tracks can never decode. Fail fast with a clear message
-      // instead of silently rejecting inside the SDK.
+      // Electron bundles Widevine via the Castlabs fork, so EME is normally
+      // available. If it is missing (e.g. the CDM failed to install), fail
+      // fast with a clear message instead of silently rejecting inside the SDK.
       if (!playbackService.isDrmSupported()) {
         const message =
-          "El webview de Linux (WebKitGTK) no soporta DRM/Widevine, así que no se puede reproducir audio completo. Podés reproducir desde una versión del navegador.";
+          "El motor de DRM (Widevine) no está disponible. Verificá que el CDM se haya instalado y reintentá.";
         logToTerminal("error", message);
         set({ error: message, isPlaying: false });
         return;
@@ -221,7 +224,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
     setVolume: (level) => {
       const clamped = Math.max(0, Math.min(100, level));
-      playbackService.setVolume(clamped);
+      playbackService.setVolume(clamped / 100);
       set({ volume: clamped });
     },
 

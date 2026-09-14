@@ -9,12 +9,12 @@ lerna-debug.log*
 
 node_modules
 dist
+out
 dist-ssr
 *.local
 
 # Environment variables
 .env
-src-tauri/.env
 
 # Editor directories and files
 .vscode/*

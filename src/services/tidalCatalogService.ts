@@ -1,15 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { Track } from "@/types/track";
 
 // All catalog data crosses the IPC boundary, so every call follows the Result
-// pattern agreed in AGENTS.md. Errors surfaced by the Rust commands contain a
-// human readable message already.
+// pattern agreed in AGENTS.md. Errors raised by the main process handlers
+// contain a human readable message already.
 export type Result<T> = { success: true; data: T } | { success: false; error: string };
 
 export class TidalCatalogService {
   async searchTracks(query: string): Promise<Result<Track[]>> {
     try {
-      const data = await invoke<Track[]>("cmd_search_tracks", { query });
+      const data = await window.api.searchTracks(query);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -18,7 +17,7 @@ export class TidalCatalogService {
 
   async getAlbumTracks(albumId: string): Promise<Result<Track[]>> {
     try {
-      const data = await invoke<Track[]>("cmd_get_album_tracks", { albumId });
+      const data = await window.api.getAlbumTracks(albumId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -27,7 +26,7 @@ export class TidalCatalogService {
 
   async getPlaylistTracks(playlistId: string): Promise<Result<Track[]>> {
     try {
-      const data = await invoke<Track[]>("cmd_get_playlist_tracks", { playlistId });
+      const data = await window.api.getPlaylistTracks(playlistId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: String(error) };

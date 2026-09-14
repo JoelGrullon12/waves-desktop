@@ -1,10 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type { AuthState } from "@/types/auth";
 
 export interface SessionCredentials {
   access_token: string;
-  user_id: number | null;
+  user_id: string | null;
   client_id: string;
 }
 
@@ -15,8 +14,8 @@ interface SessionStore extends AuthState {
   init: () => Promise<void>;
   login: () => Promise<void>;
   logout: () => Promise<void>;
-  getAccessToken: () => Promise<string>;
-  getSessionCredentials: () => Promise<SessionCredentials>;
+  getAccessToken: () => Promise<string | null>;
+  getSessionCredentials: () => Promise<SessionCredentials | null>;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -28,8 +27,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   init: async () => {
     try {
-      const isAuth: boolean = await invoke("cmd_is_authenticated");
-      set({ is_authenticated: isAuth, isLoading: false });
+      const isAuthenticated = await window.api.isAuthenticated();
+      set({ is_authenticated: isAuthenticated, isLoading: false });
     } catch {
       set({ is_authenticated: false, isLoading: false });
     }
@@ -38,10 +37,10 @@ export const useSessionStore = create<SessionStore>((set) => ({
   login: async () => {
     set({ loggingIn: true, loginError: null });
     try {
-      const result: AuthState = await invoke("cmd_login");
+      const result = await window.api.login();
       set({
-        is_authenticated: result.is_authenticated,
-        user_id: result.user_id,
+        is_authenticated: result.isAuthenticated,
+        user_id: result.userId,
         loggingIn: false,
       });
     } catch (error) {
@@ -53,15 +52,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
 
   logout: async () => {
-    await invoke("cmd_logout");
+    await window.api.logout();
     set({ is_authenticated: false, user_id: null, loginError: null });
   },
 
   getAccessToken: async () => {
-    return await invoke("cmd_get_access_token");
+    return await window.api.getAccessToken();
   },
 
   getSessionCredentials: async () => {
-    return await invoke<SessionCredentials>("cmd_get_session_credentials");
+    return await window.api.getSessionCredentials();
   },
 }));
