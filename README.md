@@ -1,106 +1,107 @@
 # Waves Desktop
 
-Reproductor de escritorio para **TIDAL** construido con Electron, React y TypeScript. UI en español,
-privada y libre de anuncios: búsqueda, álbumes, playlists y reproducción de tracks **completos**
-(no previews) con tu suscripción de pago.
+A desktop player for **TIDAL** built with Electron, React, and TypeScript. Privately
+authenticated, ad-free: search, albums, playlists, and playback of **full-length** tracks (not
+previews) using your paid subscription.
 
-## Estado del proyecto (fase actual)
+## Project status (current phase)
 
-**Fase 3 — Reproducción completa desbloqueada (verificada 2026-09-14).** La app reproduce tracks
-de TIDAL **sin el límite de 30 segundos**: barra de progreso, siguiente/anterior, búsqueda,
-volumen y encolado. La causa del preview (cortado por TIDAL del lado del servidor según el tier de
-la app de desarrollador) se resolvió conectando una **sesión web de primera parte** del web player
-de TIDAL y usándola en el motor de reproducción del SDK oficial.
+**Phase 3 — Full-length playback unlocked (verified 2026-09-14).** The app plays TIDAL tracks
+**without the 30-second cap**: progress bar, previous/next, search, volume, and queueing. The
+preview cause (server-side cut by TIDAL based on the developer app's tier) was solved by
+connecting a **first-party web session** from TIDAL's web player and using it in the official
+SDK's playback engine.
 
-Funcional por ahora:
+Currently working:
 
-- Login OAuth PKCE contra TIDAL (Dashboard) con guardado de token cifrado.
-- Sesión web de primera parte (`listen.tidal.com`) para **reproducción FULL**.
-- Búsqueda de tracks y vista de librería, álbumes y playlists.
-- Player con barra temporal, play/pausa, siguiente/anterior, cola y volumen (Widevine).
+- OAuth PKCE login against TIDAL (Dashboard) with encrypted token storage.
+- First-party web session (`listen.tidal.com`) for **FULL playback**.
+- Track search plus library, album, and playlist views.
+- Player with progress bar, play/pause, previous/next, queue, and volume (Widevine).
 
-Roadmap (próximas fases):
+Roadmap (upcoming phases):
 
-- Librería real (guardados, favoritos, playlists personales) — actualmente "coming soon".
-- Estado del artwork, controles de medios del sistema (Media Session) y más vistas.
-- Empaquetado para Linux/Windows (`package:linux` / `package:win` listos).
+- Real library (saved albums, favorites, personal playlists) — currently "coming soon".
+- Artwork states, OS media controls (Media Session), and more views.
+- Linux/Windows packaging (`package:linux` / `package:win` ready).
 
-## Cómo funciona la reproducción completa
+## How full playback works
 
-El SDK oficial de TIDAL (`@tidal-music/player`) pide el manifiesto en `/v2/trackManifests/{id}` y
-TIDAL decide `FULL` o `PREVIEW` **por el lado del servidor**, según a quién pertenece el token.
-El token de la app de desarrollador del Dashboard solo obtiene previews; en cambio, una **sesión
-web de primera parte** (el mismo flujo PKCE del web player, client `CzET4vdadNUFQ5JU`) pertenece a
-tu cuenta suscrita y entrega assets `FULL`.
+The official TIDAL SDK (`@tidal-music/player`) requests the manifest at
+`/v2/trackManifests/{id}`, and TIDAL decides `FULL` or `PREVIEW` **on the server side**, based on
+who owns the token. The developer Dashboard app token only ever gets previews; a **first-party web
+session** (the same PKCE flow as the web player, client `CzET4vdadNUFQ5JU`) belongs to your
+subscribed account and serves `FULL` assets.
 
-Waves combina ambos:
-- `CredentialsProvider` del SDK elige el token: sesión web si está conectada, token del Dashboard
-  como fallback. Como el SDK consulta las credenciales en cada `load`, conectar la sesión es
-  suficiente — no hay que reinicializar.
-- Login web sin ventanas embebidas: se abre `login.tidal.com/authorize` en tu navegador del
-  sistema, y al volver copias el `code` en la app. (Un `BrowserWindow` con el SPA de TIDAL
-  crashea en este entorno — ver `AGENTS.md`.)
+Waves combines both:
 
-> ⚠️ La sesión web es de primera parte de TIDAL. Úsala con tu propia cuenta. El patrón es el
-> mismo que usan reproductores de la comunidad como tidal-hifi. Ver el aviso en `AGENTS.md`.
+- The SDK's `CredentialsProvider` picks the token: the web session when connected, the Dashboard
+  token otherwise. Because the SDK requests credentials on every `load`, connecting the session is
+  enough — no re-initialization required.
+- No embedded windows for the web login: `login.tidal.com/authorize` opens in your system browser,
+  and you paste the `code` back into the app. (A `BrowserWindow` loading TIDAL's SPA crashes in
+  this environment — see `AGENTS.md`.)
+
+> ⚠️ The web session is first-party to TIDAL. Use it with your own account. This is the same
+> pattern community players such as tidal-hifi use. See the note in `AGENTS.md`.
 
 ## Stack
 
 - **Electron** (fork [castlabs `#v44.1.0+wvcus`](https://github.com/castlabs/electron-releases))
-  para Widevine DRM.
-- **React 19 + TypeScript + Tailwind CSS 4** (base-ui/shadcn) y Vite (electron-vite).
-- **@tidal-music/player** (SDK web de TIDAL) para reproducción (shaka/browser).
-- **zustand** (estado), **@tanstack/react-query** (datos), **libSQL** (catálogo local),
-  **safeStorage** para cifrar los tokens.
+  for Widevine DRM.
+- **React 19 + TypeScript + Tailwind CSS 4** (base-ui/shadcn) and Vite (electron-vite).
+- **@tidal-music/player** (TIDAL web SDK) for playback (shaka/browser).
+- **zustand** (state), **@tanstack/react-query** (data), **libSQL** (local catalog),
+  **safeStorage** for token encryption.
 
-## Requisitos
+## Requirements
 
-- Node.js 20+ y npm.
-- Linux: Wayland/X11. En Linux la app corre con `--no-sandbox --in-process-gpu`.
-- Una cuenta de TIDAL de pago (suscripción) para la reproducción completa.
-- Para el login del Dashboard: `TIDAL_CLIENT_ID` y `TIDAL_CLIENT_SECRET` de una app creada en el
-  [Dashboard de TIDAL](https://developer.tidal.com/dashboard) (archivo `.env`).
+- Node.js 20+ and npm.
+- Linux: Wayland/X11. On Linux the app runs with `--no-sandbox --in-process-gpu`.
+- A paid (subscribed) TIDAL account for full-length playback.
+- For the Dashboard login: `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` from an app created in the
+  [TIDAL Dashboard](https://developer.tidal.com/dashboard) (`.env` file).
 
-## Puesta en marcha
+## Getting started
 
 ```bash
 npm install
-# crear .env con TIDAL_CLIENT_ID / TIDAL_CLIENT_SECRET (login del Dashboard)
+# create .env with TIDAL_CLIENT_ID / TIDAL_CLIENT_SECRET (Dashboard login)
 npm run dev
 ```
 
-Flujo inicial:
+Initial flow:
 
-1. **Login (Dashboard)**: botón "Login" → se abre tu navegador → vuelves autenticado.
-2. **Full playback**: en *Your Library* → *Connect full playback* → inicias sesión en TIDAL en tu
-   navegador → copias el `code` de `https://listen.tidal.com/login/auth?code=...` → *Complete*.
-   La app lo guarda cifrado y refresca el token automáticamente (~24 h).
+1. **Login (Dashboard)**: press "Login" → your browser opens → you come back authenticated.
+2. **Full playback**: in *Your Library* → *Connect full playback* → sign in to TIDAL in your
+   browser → copy the `code` from `https://listen.tidal.com/login/auth?code=...` → *Complete*.
+   The app stores it encrypted and refreshes the token automatically (~24 h).
 
 ## Scripts
 
-| Comando | Qué hace |
+| Command | What it does |
 |---|---|
-| `npm run dev` | Desarrollo |
+| `npm run dev` | Development |
 | `npm run typecheck` | TypeScript (node + renderer) |
 | `npm run build` | Build main + preload + renderer |
-| `npm run package:linux` | Empaqueta AppImage/deb para Linux |
-| `npm run package:win` | Empaqueta para Windows |
+| `npm run package:linux` | Package AppImage/deb for Linux |
+| `npm run package:win` | Package for Windows |
 
-## Estructura
+## Structure
 
 ```
-electron/main/    auth (Dashboard), webSessionAuth (sesión web FULL), catalog, database
+electron/main/    auth (Dashboard), webSessionAuth (FULL web session), catalog, database
 electron/preload/ contextBridge → window.api
-src/store/        sessionStore, playerStore (wraps SDK), queueStore
-src/services/     playbackService (wrapper SDK)
+src/store/        sessionStore, playerStore (wraps the SDK), queueStore
+src/services/     playbackService (SDK wrapper)
 src/views/        LoginView, LibraryView, SearchView, AlbumView, PlaylistView
 src/components/   PlayerBar, QueuePanel, AppShell, TrackList, ui/*
 ```
 
-Detalle de arquitectura, decisiones y trampas conocidas: [AGENTS.md](./AGENTS.md).
+Architecture details, decisions, and known pitfalls: [AGENTS.md](./AGENTS.md).
 
-## Aviso legal
+## Legal notice
 
-Proyecto personal con fines de estudio. Waves no es un producto oficial de TIDAL. La reproducción
-usa la sesión autenticada de tu propia cuenta de pago. No se distribuye con contenido descargado
-ni se comparten credenciales.
+A personal project for learning purposes. Waves is not an official TIDAL product. Playback uses
+the authenticated session of your own paid account. It does not ship downloaded content or share
+credentials.
