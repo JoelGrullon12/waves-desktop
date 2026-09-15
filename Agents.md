@@ -11,9 +11,16 @@
 > repeat. Ver "Current Status" y `.opencode/plans/session-handoff-liked-songs.md`. El
 > trabajo de esa pantalla está **sin commitear** (working tree).
 >
-> **Siguiente fase (pendiente):** arreglar build/distribución — W11 falla con
-> `electron-vite` y en esta máquina el empaquetado da 404 con la versión de electron.
-> NO es de esta sesión; ver `.opencode/plans/session-handoff-build-distribution.md`.
+> **Siguiente fase (resuelta — pendiente de validar en W11 por el usuario):**
+> build/distribución. Causas raíz encontradas y corregidas:
+> (1) el fork de Castlabs no trae postinstall, así que el binario nunca se descargaba
+> en otra PC (`npm run dev` → "Electron uninstall"); (2) electron-builder no tenía
+> `electron-builder.yml` y resolvía el binario contra electron estándar (404 del
+> `+wvcus`); (3) Node 16 es incompatible con el toolchain (tailwind/vite/electron
+> exigen >= 20/22). Resta: validar `npm install` + `npm run dev` en la W11 con
+> Node 22+ y correr `npm run package:win` allí. Ver
+> `.opencode/plans/session-handoff-build-distribution.md` (resuelto) y el
+> "Build & Test Scripts" runbook más abajo.
 
 ---
 
@@ -207,6 +214,19 @@ packaging on this machine fails with a 404 on the electron version. Both are
 documented in `.opencode/plans/session-handoff-build-distribution.md` (symptoms
 only; investigation deferred to that session). Also pending: Step 10 (packaging)
 of the Electron migration and an `electron-builder.yml` (not created yet).
+
+**Current (RESOLVED 2026-09-15 — build/distribution):** all three causes are
+fixed and committed: (1) missing Electron binary on fresh installs →
+`scripts/ensureElectron.mjs` runs as `postinstall` and invokes the fork's own
+`install.js` when `node_modules/electron/dist` is absent (the fork has no
+postinstall of its own); (2) packaging 404 → `electron-builder.yml` now exists
+with `electronDist: node_modules/electron/dist`, so electron-builder copies the
+local Castlabs binary instead of downloading from the standard Electron repo;
+`npm run package:linux` now produces `.AppImage` + `.deb`; (3) Node 16 →
+`engines.node >= 22.12.0` + `.nvmrc`. Dev/start now go through
+`scripts/runElectron.mjs`, which appends the Linux-only Chromium flags only on
+Linux (they do not belong on Windows). **Outstanding:** validate `npm install` +
+`npm run dev` on the W11 machine with Node 22+ and run `npm run package:win` there.
 
 ### Linux launch runbook (do not remove these flags)
 
@@ -564,10 +584,17 @@ waves-desktop/
 │       └── remoteControlEvent.ts
 │
 └── resources/
-    ├── icon.png
-    ├── icon.ico
+    ├── icon.png        # Placeholder (AppImage/deb) — replace when real branding exists
+    ├── icon.ico        # Placeholder (nsis installer)
     └── icon.icns
+
+scripts/
+    ├── ensureElectron.mjs   # postinstall: downloads fork binary if dist/ missing
+    └── runElectron.mjs      # dev/start: spawns electron-vite, Linux-only Chromium flags
 ```
+
+Icon placeholders are generated with a one-off PIL script (see git history / this
+handoff); they will no longer be placeholders once real branding exists.
 
 ---
 
@@ -1075,12 +1102,22 @@ async function incrementPlayCount(trackId: string): Promise<Result<void>> {
 
 ## Build & Test Scripts
 
+**Node requirement: >= 22.12.0** (pinned by `.nvmrc` = `22` and
+`package.json` `engines`). Node 16 fails (`@tailwindcss/oxide` native binding,
+vite/electron-vite, and the Castlabs fork all require Node >= 20/22). Use nvm on
+Windows: `nvm install 22` then `nvm use 22`.
+
+`npm install` is plug-and-play on every OS: the `postinstall` hook
+(`scripts/ensureElectron.mjs`) runs the fork's `install.js` automatically when
+`node_modules/electron/dist` is missing, so no manual binary download is needed.
+
 ```bash
 # Start in development mode (hot reload, opens Electron window)
-# Linux: --noSandbox + --in-process-gpu are baked into this script (see Linux Runbook)
+# Linux: --noSandbox + --in-process-gpu are appended by scripts/runElectron.mjs
+# only on Linux; Windows runs without them.
 npm run dev
 
-# Preview the production build (same Linux flags baked in)
+# Preview the production build (same platform-aware behavior)
 npm start
 
 # Type-check TypeScript without emitting
@@ -1089,10 +1126,12 @@ npm run typecheck
 # Build all processes (main + preload + renderer)
 npm run build
 
-# Package for Linux (.AppImage + .deb)
+# Package for Linux (.AppImage + .deb) — run ON the Linux machine.
 npm run package:linux
 
-# Package for Windows (.exe installer)
+# Package for Windows (.exe installer) — run ON a Windows machine
+# (the local node_modules/electron/dist is single-platform, so packaging
+# must happen on the target OS).
 npm run package:win
 
 # Run frontend unit tests
@@ -1101,6 +1140,25 @@ npm run test
 # Lint TypeScript
 npm run lint
 ```
+
+### Building on a fresh machine (the "clone + npm install + npm start" promise)
+
+1. Node 22+ (`.nvmrc` pins 22). On Windows with nvm: `nvm install 22 && nvm use 22`.
+2. `npm install` — the `postinstall` downloads the Castlabs Electron binary for
+   your OS from `github.com/castlabs/electron-releases` (the win32 x64 artifact
+   exists and its checksum is in the fork's `checksums.json`).
+3. `npm run dev` — opens the window. If electron-builder is ever invoked, it uses
+   `electronDist: node_modules/electron/dist` (see `electron-builder.yml`), so
+   packaging never touches the standard Electron releases.
+
+### Notes
+
+- `electron-builder.yml` exists at the repo root; before 2026-09-15 it did NOT,
+  which caused the packaging 404 (electron-builder resolved `v44.1.0+wvcus`
+  against `github.com/electron/electron`). `electronDist` is the fix.
+- Icons: `resources/icon.png` (AppImage/deb) and `resources/icon.ico` (nsis) are
+  placeholders generated by a one-off PIL script; replace them when real branding
+  exists.
 
 ---
 

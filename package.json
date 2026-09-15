@@ -5,12 +5,16 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev --noSandbox -- --in-process-gpu",
-    "start": "electron-vite preview --noSandbox -- --in-process-gpu",
+    "postinstall": "node scripts/ensureElectron.mjs",
+    "dev": "node scripts/runElectron.mjs dev",
+    "start": "node scripts/runElectron.mjs preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
     "package:linux": "npm run build && electron-builder --linux",
     "package:win": "npm run build && electron-builder --win"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

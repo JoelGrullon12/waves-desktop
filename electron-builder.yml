@@ -1,0 +1,37 @@
+# electron-builder packaging config.
+#
+# electronDist is the critical setting: this project uses the Castlabs ECS
+# fork of Electron (github:castlabs/electron-releases#v44.1.0+wvcus) to get
+# Widevine CDM bundled in the binary. Without electronDist, electron-builder
+# resolves the binary from the standard Electron releases on
+# github.com/electron/electron and 404s on the `+wvcus` version string.
+# Pointing it at the local dist (already downloaded by scripts/ensureElectron.mjs)
+# makes packaging copy the fork binary instead of downloading anything.
+#
+# Because the local dist is single-platform, package on the matching OS:
+#   npm run package:linux  -> run on the Linux machine (this repo's primary env)
+#   npm run package:win    -> run on a Windows machine
+
+appId: com.personal.waves-desktop
+productName: Waves Desktop
+electronDist: node_modules/electron/dist
+directories:
+  output: dist
+files:
+  - out/**
+
+win:
+  target:
+    - nsis
+  icon: resources/icon.ico
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: resources/icon.png
+  maintainer: Waves Desktop <waves-desktop@localhost>
+  category: Audio
+  executableArgs:
+    - --no-sandbox
+    - --in-process-gpu
