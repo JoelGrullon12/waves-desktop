@@ -1,4 +1,4 @@
-import { Home, LogOut, Search } from "lucide-react";
+import { Home, LogOut, Music, Search } from "lucide-react";
 import { NavLink } from "react-router";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,10 @@ export function Sidebar() {
         <NavLink to="/" end className={navLinkClass}>
           <Home className="size-4" aria-hidden />
           Your Library
+        </NavLink>
+        <NavLink to="/songs" className={navLinkClass}>
+          <Music className="size-4" aria-hidden />
+          Songs
         </NavLink>
         <NavLink to="/search" className={navLinkClass}>
           <Search className="size-4" aria-hidden />

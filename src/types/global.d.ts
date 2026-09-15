@@ -1,4 +1,4 @@
-import type { Track } from "@/types/track";
+import type { FavoriteTracksPage, Track } from "@/types/track";
 
 declare global {
   interface Window {
@@ -15,6 +15,8 @@ declare global {
       searchTracks: (query: string) => Promise<Track[]>;
       getAlbumTracks: (albumId: string) => Promise<Track[]>;
       getPlaylistTracks: (playlistId: string) => Promise<Track[]>;
+      getFavoriteTracksPage: (cursor: string | null) => Promise<FavoriteTracksPage>;
+      getTracksByIds: (trackIds: string[]) => Promise<Track[]>;
       webLogin: () => Promise<{
         success: boolean;
         pending: boolean;

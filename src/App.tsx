@@ -10,6 +10,7 @@ import { LibraryView } from "@/views/LibraryView";
 import { LoginView } from "@/views/LoginView";
 import { PlaylistView } from "@/views/PlaylistView";
 import { SearchView } from "@/views/SearchView";
+import { SongsView } from "@/views/SongsView";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -72,6 +73,7 @@ function App() {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<LibraryView />} />
+            <Route path="songs" element={<SongsView />} />
             <Route path="search" element={<SearchView />} />
             <Route path="albums/:albumId" element={<AlbumView />} />
             <Route path="playlists/:playlistId" element={<PlaylistView />} />

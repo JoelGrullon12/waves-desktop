@@ -152,6 +152,36 @@ function mediaTagToQuality(mediaTags: string[]): string | null {
   return null;
 }
 
+// The coverArt relationship only exposes the artwork resource's short id; the
+// CDN cannot serve an image from that id (it 403s). The artwork's `files`
+// attribute carries fully-resolved CDN hrefs for the declared sizes — the only
+// sizes the CDN actually serves (an off-list size also 403s). So the cover URL
+// is taken from those hrefs, choosing the size closest to the target.
+const TARGET_ARTWORK_WIDTH = 320;
+
+function artworkFileHref(artworkId: string | null, byId: Map<string, ResourceObject>): string | null {
+  if (!artworkId) return null;
+  const artworkResource = byId.get(artworkId);
+  if (!artworkResource) return null;
+  const files = asRecord(artworkResource["attributes"])["files"];
+  if (!Array.isArray(files)) return null;
+
+  let closestHref: string | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const file of files) {
+    const href = asRecord(file)["href"];
+    if (typeof href !== "string") continue;
+    const meta = asRecord(asRecord(file)["meta"]);
+    const width = typeof meta["width"] === "number" ? meta["width"] : 0;
+    const distance = Math.abs(width - TARGET_ARTWORK_WIDTH);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestHref = href;
+    }
+  }
+  return closestHref;
+}
+
 function trackFromV2Resource(
   resource: ResourceObject,
   byId: Map<string, ResourceObject>,
@@ -174,7 +204,7 @@ function trackFromV2Resource(
     ? {
         id: albumResource.id,
         title: attributeString(albumResource, "title") ?? "",
-        cover: relationshipDataIds(albumResource, "coverArt")[0] ?? null,
+        cover: artworkFileHref(relationshipDataIds(albumResource, "coverArt")[0], byId),
       }
     : null;
 
@@ -234,36 +264,176 @@ function tracksFromItems(document: RelationshipDocument): Track[] {
     .filter((track): track is Track => track !== null);
 }
 
+// Converts a multi-resource tracks document (GET /tracks by filter[id]) to
+// Tracks, honoring the resource order (the API echoes the request order).
+function tracksFromTracksDocument(document: MultiResourceDocument): Track[] {
+  const byId = indexResources(document.included);
+  return document.data
+    .filter((resource) => resource["type"] === "tracks")
+    .map((resource) => trackFromV2Resource(resource, byId, null, null));
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// Only HTTP status matters here; probing `isAxiosError` would couple this file
+// to axios internals. A 429 has a `response.status`, plain network failures do
+// not reach this helper.
+function httpStatus(error: unknown): number | null {
+  if (typeof error !== "object" || error === null) return null;
+  const response = (error as { response?: { status?: unknown } }).response;
+  return typeof response?.status === "number" ? response.status : null;
+}
+
+const MAX_RATE_LIMIT_RETRIES = 4;
+
 async function fetchJson(url: string): Promise<unknown> {
   const accessToken = await getValidAccessToken();
   if (!accessToken) throw new Error("Not authenticated: no valid TIDAL access token.");
 
-  const response = await axios.get(url, {
-    headers: {
-      Accept: JSON_API_MEDIA_TYPE,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  return response.data;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          Accept: JSON_API_MEDIA_TYPE,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      // TIDAL's edge rate-limits short request bursts with HTTP 429 plus a
+      // Retry-After header. Honoring it keeps multi-page catalog reads stable;
+      // we never saw a 429 here that a pause did not clear.
+      const status = httpStatus(error);
+      if (status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+        const headers = (error as { response?: { headers?: Record<string, string> } }).response
+          ?.headers;
+        const parsedRetryAfter = Number.parseInt(headers?.["retry-after"] ?? "", 10);
+        const retryAfterSeconds = Number.isFinite(parsedRetryAfter) ? parsedRetryAfter : 1;
+        const delayMilliseconds = Math.max(500, retryAfterSeconds * 1000) * (attempt + 1);
+        console.warn(
+          `catalog: rate limited (429), retrying ${url} in ${delayMilliseconds}ms ` +
+            `(attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`,
+        );
+        await sleep(delayMilliseconds);
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
+// URLSearchParams.set() replaces every existing value with the same name, so
+// repeated `include` keys must be appended (JSON:API allows any number of
+// comma-separated values, the API also accepts repeated params) to keep all of
+// them in the compound document.
 function buildSearchUrl(query: string): string {
   const searchUrl = new URL(`${TIDAL_CATALOG_BASE}/searchResults`);
   searchUrl.searchParams.set("filter[query]", query);
   searchUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
-  searchUrl.searchParams.set("include", "tracks");
-  searchUrl.searchParams.set("include", "tracks.albums");
-  searchUrl.searchParams.set("include", "tracks.artists");
+  searchUrl.searchParams.append("include", "tracks");
+  searchUrl.searchParams.append("include", "tracks.albums");
+  searchUrl.searchParams.append("include", "tracks.albums.coverArt");
+  searchUrl.searchParams.append("include", "tracks.artists");
   return searchUrl.toString();
 }
 
 function buildItemsUrl(collection: "albums" | "playlists", id: string): string {
   const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/${collection}/${id}/relationships/items`);
   itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
-  itemsUrl.searchParams.set("include", "items.albums");
-  itemsUrl.searchParams.set("include", "items.artists");
+  itemsUrl.searchParams.append("include", "items.albums");
+  itemsUrl.searchParams.append("include", "items.albums.coverArt");
+  itemsUrl.searchParams.append("include", "items.artists");
   return itemsUrl.toString();
+}
+
+// The likes collection paginates server-side (default ~20 items / page) and is
+// ordered by most-recently-added. Every page returns `links.meta.nextCursor`
+// pointing at the following page. Pages are fetched on demand by the renderer
+// (infinite scroll / prefetch); requests are paced to stay under the edge rate limit.
+//
+// `page[size]` is not part of the OpenAPI spec for this endpoint. We probe it
+// at runtime on each session: the first candidate (50) is tried; a 400 falls
+// back to the server default.
+//
+// RATE LIMIT CEILING: both page[size]=500 and page[size]=100 were tried on
+// 2026-09-15 and TIDAL's edge rejects them with 429 (rate limited) mid-collection
+// walk — bigger pages just make every page retry 4 times. 50 is the verified
+// safe size; do NOT raise this value in a future session (see Agents.md "Liked
+// Songs" note).
+const COLLECTION_PAGE_SIZES: number[] = [50];
+const COLLECTION_PAGE_PACING_MS = 300;
+
+let collectionPageSizeIndex = 0;
+
+interface CollectionItemsDocument extends RelationshipDocument {
+  meta?: { nextCursor?: string; [key: string]: unknown };
+  links?: { meta?: { nextCursor?: string }; next?: string; [key: string]: unknown };
+}
+
+function nextCursor(document: CollectionItemsDocument): string | null {
+  const fromLinkMeta = document.links?.meta?.nextCursor ?? null;
+  if (fromLinkMeta) return fromLinkMeta;
+  const nextLink = document.links?.next;
+  if (!nextLink) return null;
+  const nextUrl = new URL(nextLink, TIDAL_CATALOG_BASE);
+  return nextUrl.searchParams.get("page[cursor]");
+}
+
+function buildUserLikedTracksUrl(cursor: string | null, pageSize: number | null): string {
+  const itemsUrl = new URL(
+    `${TIDAL_CATALOG_BASE}/userCollectionTracks/me/relationships/items`,
+  );
+  itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  itemsUrl.searchParams.append("include", "items");
+  itemsUrl.searchParams.append("include", "items.albums");
+  itemsUrl.searchParams.append("include", "items.artists");
+  if (cursor) itemsUrl.searchParams.set("page[cursor]", cursor);
+  // `page[size]` is not part of the OpenAPI spec for this endpoint. We probe it
+  // at runtime: if the first call is rejected (400) the whole session falls back
+  // to the next candidate, then to the server default. See COLLECTION_PAGE_SIZES
+  // for the verified ceiling (50 — 100/500 get 429 rate-limited).
+  if (pageSize) itemsUrl.searchParams.set("page[size]", String(pageSize));
+  return itemsUrl.toString();
+}
+
+export async function getLikedTracksPage(
+  cursor: string | null,
+): Promise<{ tracks: Track[]; nextCursor: string | null }> {
+  if (cursor) await sleep(COLLECTION_PAGE_PACING_MS);
+
+  let document: CollectionItemsDocument;
+  for (;;) {
+    const pageSize =
+      collectionPageSizeIndex < COLLECTION_PAGE_SIZES.length
+        ? COLLECTION_PAGE_SIZES[collectionPageSizeIndex]
+        : null;
+    try {
+      document = (await fetchJson(
+        buildUserLikedTracksUrl(cursor, pageSize),
+      )) as CollectionItemsDocument;
+      break;
+    } catch (error) {
+      if (httpStatus(error) === 400 && collectionPageSizeIndex < COLLECTION_PAGE_SIZES.length) {
+        console.warn(
+          `catalog: page[size]=${pageSize} rejected (400), trying next candidate (index ${collectionPageSizeIndex + 1})`,
+        );
+        collectionPageSizeIndex += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  const tracks = tracksFromItems(document);
+  const nextPageCursor = nextCursor(document);
+  // Stop on an empty page, a missing pointer, or a cursor that did not advance
+  // (the server sometimes echoes the same cursor at the end).
+  if (tracks.length === 0 || !nextPageCursor || nextPageCursor === cursor) {
+    return { tracks, nextCursor: null };
+  }
+  return { tracks, nextCursor: nextPageCursor };
 }
 
 export async function searchTracks(query: string): Promise<Track[]> {
@@ -287,6 +457,35 @@ export async function getPlaylistTracks(playlistId: string): Promise<Track[]> {
   return tracks;
 }
 
+// The likes collection embeds reduced track/album resources: the album carries
+// its title but the `coverArt` relationship only appears when requested.
+// Fetching the canonical full tracks for the same ids fills artwork. Requests
+// are chunked and paced to respect the edge rate limit.
+const MAX_TRACKS_PER_BATCH = 50;
+const TRACKS_BATCH_PACING_MS = 200;
+
+function buildTracksByIdsUrl(trackIds: string[]): string {
+  const tracksUrl = new URL(`${TIDAL_CATALOG_BASE}/tracks`);
+  tracksUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  for (const id of trackIds) tracksUrl.searchParams.append("filter[id]", id);
+  tracksUrl.searchParams.append("include", "albums");
+  tracksUrl.searchParams.append("include", "albums.coverArt");
+  tracksUrl.searchParams.append("include", "artists");
+  return tracksUrl.toString();
+}
+
+export async function getTracksByIds(trackIds: string[]): Promise<Track[]> {
+  const uniqueIds = Array.from(new Set(trackIds));
+  const tracks: Track[] = [];
+  for (let i = 0; i < uniqueIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(TRACKS_BATCH_PACING_MS);
+    const batch = uniqueIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    const document = (await fetchJson(buildTracksByIdsUrl(batch))) as MultiResourceDocument;
+    tracks.push(...tracksFromTracksDocument(document));
+  }
+  return tracks;
+}
+
 export function registerCatalogHandlers(ipcMain: IpcMain): void {
   ipcMain.handle("catalog:search-tracks", (_event, query: string) => searchTracks(query));
   ipcMain.handle("catalog:get-album-tracks", (_event, albumId: string) =>
@@ -294,5 +493,11 @@ export function registerCatalogHandlers(ipcMain: IpcMain): void {
   );
   ipcMain.handle("catalog:get-playlist-tracks", (_event, playlistId: string) =>
     getPlaylistTracks(playlistId),
+  );
+  ipcMain.handle("catalog:get-favorite-tracks-page", (_event, cursor: string | null) =>
+    getLikedTracksPage(cursor),
+  );
+  ipcMain.handle("catalog:get-tracks-by-ids", (_event, trackIds: string[]) =>
+    getTracksByIds(trackIds),
   );
 }

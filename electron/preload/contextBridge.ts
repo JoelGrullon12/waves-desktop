@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("catalog:get-album-tracks", albumId),
   getPlaylistTracks: (playlistId: string) =>
     ipcRenderer.invoke("catalog:get-playlist-tracks", playlistId),
+  getFavoriteTracksPage: (cursor: string | null) =>
+    ipcRenderer.invoke("catalog:get-favorite-tracks-page", cursor),
+  getTracksByIds: (trackIds: string[]) =>
+    ipcRenderer.invoke("catalog:get-tracks-by-ids", trackIds),
 
   webLogin: () => ipcRenderer.invoke("web-auth:login"),
   completeWebLogin: (pasted: string) => ipcRenderer.invoke("web-auth:complete-login", pasted),

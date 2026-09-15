@@ -4,6 +4,16 @@
 > Read it **entirely** before writing any code or making any architectural decision.
 > The project is currently mid-migration from Tauri v2 to Electron. The target stack described
 > in this file is Electron — do not introduce Tauri/Rust code or revert to the old stack.
+>
+> **Sesión 2026-09-15:** la pantalla Songs (liked tracks) está en estado **parcial** — el
+> menú contextual y los likes son UI con no-ops, no funcionales. El shuffle/Play cubren ya
+> toda la librería (prefetch + espera con spinner), pero sigue sin toggle persistente ni
+> repeat. Ver "Current Status" y `.opencode/plans/session-handoff-liked-songs.md`. El
+> trabajo de esa pantalla está **sin commitear** (working tree).
+>
+> **Siguiente fase (pendiente):** arreglar build/distribución — W11 falla con
+> `electron-vite` y en esta máquina el empaquetado da 404 con la versión de electron.
+> NO es de esta sesión; ver `.opencode/plans/session-handoff-build-distribution.md`.
 
 ---
 
@@ -56,7 +66,7 @@ truly plug-and-play on both Windows and Linux.
 
 ## Current Status
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 ### Completed (Tauri era — logic preserved, shell being replaced)
 
@@ -79,12 +89,11 @@ Last updated: 2026-09-14
 
 ### In progress — Migration to Electron
 
-Migration Plan Steps 1–8 are done and verified (dev shell, main process, auth,
-catalog, database, preload bridge, renderer call-sites). Step 9 (Widevine +
-playback) is functionally reached but has an open blocker (see below). Step 10
-(packaging) is pending.
+Migration Plan Steps 1–9 are done and verified (dev shell, main process, auth,
+catalog, database, preload bridge, renderer call-sites, Widevine + playback).
+Step 10 (packaging) is pending.
 
-Session achievements (2026-09-14):
+Session achievements (2026-09-14 — playback consolidado en commits):
 - Login works end-to-end on Electron. Fixed an ESM ordering bug: `auth.ts` read
   `process.env.*` at module scope before `dotenv.config()` ran (imported modules
   evaluate before the entry body runs). Fix: `dotenv.config()` lives at the top of
@@ -99,7 +108,77 @@ Session achievements (2026-09-14):
 - Widevine auth verified over CDP: `navigator.requestMediaKeySystemAccess('com.widevine.alpha')`
   resolves and the DRM-configured `load()` produces audio. See the Widevine section
   for how the CDM got installed.
-- Working tree: ~19 uncommitted files on branch `feat/electron-migration`.
+- **Full-length playback (>30s) resolved** with `electron/main/webSessionAuth.ts`
+  ("web" session): a first-party `CzET4vdadNUFQ5JU` PKCE flow minted in the system
+  browser gives the subscribed account's token, which the server accepts with
+  `assetPresentation: FULL`. The SDK's `CredentialsProvider` prefers it over the
+  dashboard token. Details in `.opencode/plans/session-handoff-full-playback.md`.
+
+Session achievements (2026-09-15 — Liked Songs, working tree SIN commitear):
+- New `/songs` screen (`src/views/SongsView.tsx`) listing liked tracks with
+  cursor-based infinite scroll (`useInfiniteQuery`, `IntersectionObserver`
+  sentinel with `rootMargin: "200px 0px"`), dedupe across pages, empty state,
+  Play / Shuffle buttons, total count + total duration header.
+- **IMPORTANT — enrichment is REQUIRED, not optional:** the likes endpoint
+  `GET /userCollectionTracks/me/relationships/items` ONLY accepts
+  `include=items` (unlike playlists/albums, it rejects `items.albums.coverArt`
+  with 400). The items always lack artwork, so the cover art (and any other
+  missing field) must come from a second call: `getTracksByIds` +
+  `songsStore.ts` enrichment. Do NOT "optimize" this away.
+- No server-side shuffle: `sort` on the likes endpoint only accepts
+  `addedAt`, `albums.title`, `artists.name`, `duration`, `title` (with `-`
+  prefix for descending). Shuffle must be client-side.
+- Full-library playback: Play/Shuffle buttons wait (spinner) while the rest of
+  the pages and the enrichment finish loading, so the whole library is queued,
+  not just the fetched-on-scroll subset. Rows render through a `visibleCount`
+  window; `TrackList` got a `queueTracks` prop so clicking a row still starts
+  the FULL list (resolving the real index by id), not the visible slice.
+- `page[size]` en el endpoint de likes: **50 es el tope verificado.** Probados y
+  rechazados por TIDAL (429 rate-limit): page[size]=500 y page[size]=100 — el walk
+  se arrastra entre retries. **NO subir este valor en otra sesión.**
+  `COLLECTION_PAGE_SIZES = [50]` con probe descendente a default en runtime
+  (`getLikedTracksPage` en `electron/main/catalog.ts`).
+- Play/Shuffle esperan (spinner, sin timeout) a que TIDAL complete páginas +
+  enrichment — la biblioteca puede ser enorme; SOLO un fetch error corta la espera
+  y muestra el mensaje de error.
+- On-demand enrichment: the likes collection omits artwork; `songsStore.ts`
+  caches resolved ids (`Map<string, Track|null>`, null = already-resolved-miss)
+  and `SongsView` fetches batches of 50 sequentially, retrying failures on the
+  next effect run.
+- **3.ª iteración — fix del listado "clavado" en la primera entrada:** el sentinel
+  del `IntersectionObserver` se movió FUERA del bloque condicional
+  `{displayTracks.length > 0 && ...}`. Antes vivía dentro de ese bloque, así que en
+  el primer render de la pantalla no existía (aún no había data), el effect con
+  deps `[]` hacía early-return y el observer nunca se adjuntaba → el reveal de
+  filas (`visibleCount`) no funcionaba en la primera visita (había que salir y
+  volver a entrar, donde la caché ya tenía data y el sentinel existía en el mount).
+  Ahora el sentinel está siempre en el DOM y el observer se adjunta desde el primer
+  render. Detalle en `.opencode/plans/session-handoff-liked-songs.md`.
+- Main-process catalog additions (`electron/main/catalog.ts`): server-cursor
+  paging `getLikedTracksPage`, `getTracksByIds` (chunked 50 + 200 ms pacing),
+  HTTP 429 retry honoring `Retry-After`, and CDN artwork resolution
+  (`artworkFileHref` picks a real href from the artwork's `files` — the short
+  id 403s). Search and items URLs now `include=...coverArt`.
+- `TrackList.tsx`: adaptive grid (drops heart column in the liked list via
+  `showLikeButton`), `loading="lazy"` artwork, `allowRemoveFromLibrary` prop,
+  per-row click plays from queue position, wraps rows in `TrackContextMenu`.
+- IPC: `window.api.getFavoriteTracksPage(cursor)` and `getTracksByIds(ids)`.
+- Added `formatTotalDuration`, `artworkUrl` passthrough for full CDN https hrefs,
+  `FavoriteTracksPage` type, "Songs" nav entry in the Sidebar.
+
+  **Estado parcial (NO funcional aún):** `TrackContextMenu` entries (Play next,
+  Add to queue, Add to playlist, Remove from library, Go to album/artist) route
+  to `runPlaceholder()` no-ops. Like hearts are decorative. Remove-from-library
+  is visible but inert. Shuffle is one-shot (no persistent toggle); no repeat mode.
+  Play/Shuffle sí cargan la librería completa antes de iniciar (spinner). Live
+  handoff: `.opencode/plans/session-handoff-liked-songs.md`.
+- Working tree (no commits yet): `git status` — 11 modified + 5 untracked
+  (`src/views/SongsView.tsx`, `src/store/songsStore.ts`,
+  `src/components/tracks/TrackContextMenu.tsx`,
+  `.opencode/plans/session-handoff-liked-songs.md`,
+  `.opencode/plans/session-handoff-build-distribution.md`). The stash at `stash@{0}` is
+  an **abandoned prior iteration** — ignore it. `npm run typecheck` and
+  `npm run build` pass.
 
 ### Blocked
 
@@ -108,15 +187,26 @@ Tauri because WebKitGTK has no EME/Widevine. That blocker is resolved under
 Electron — `isDrmSupported()` is true and EME/Widevine works. Keep this context;
 do not regress back to WebKitGTK.
 
-**Current (open): playback is capped at ~30 s per track.** Tracks play with audio
-and DRM, then stop around the 30 s mark even with a valid Authorization Code
-session. Hypothesis for next session: the dashboard app's access tier only
-authorizes *previews* for third-party apps — playbackinfo likely returns
-`assetPresentation: PREVIEW` with a 30 s stream, so full tracks are never granted.
-Next steps: capture the playbackinfo response (`assetPresentation`, duration) for
-a played track and compare with how tidal-hifi builds its playback requests; then
-decide whether full playback is achievable with this client or whether the
-milestone is re-scoped (e.g., preview-only playback for now).
+**Historical (30s preview):** the dashboard app token only grants
+`assetPresentation: PREVIEW` (server-side tier decision). **RESOLVED** on
+2026-09-14 with the first-party web session — `webSessionAuth.ts` mints a
+listener (web player) token that gets FULL manifests. See Current Status.
+
+**Current (open): the liked-songs screen is only partially functional.**
+`TrackContextMenu` actions are UI placeholders (`runPlaceholder()` no-ops):
+Play next, Add to queue, Add to playlist, Remove from library, Go to album/artist.
+Like hearts are decorative (not wired to `collection.write`); remove-from-library
+is visible but inert; shuffle is a one-shot queue shuffle with no persistent
+toggle, and there is no repeat mode in PlayerBar. Next steps (Phase 3/6 of the
+roadmap): wire context-menu and like/unlike flows to the collection API, add a
+persistent shuffle/repeat control, and commit the working tree.
+
+**Current (open, next session — build/distribution):** the app only runs on this
+Bazzite machine. Trying `electron-vite` on a Windows 11 machine errored, and
+packaging on this machine fails with a 404 on the electron version. Both are
+documented in `.opencode/plans/session-handoff-build-distribution.md` (symptoms
+only; investigation deferred to that session). Also pending: Step 10 (packaging)
+of the Electron migration and an `electron-builder.yml` (not created yet).
 
 ### Linux launch runbook (do not remove these flags)
 
@@ -235,12 +325,28 @@ Method names mirror the old Tauri `invoke()` calls so renderer changes are minim
 contextBridge.exposeInMainWorld('api', {
   login: () => ipcRenderer.invoke('auth:login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
+  isAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),
   getSessionCredentials: () => ipcRenderer.invoke('auth:get-session-credentials'),
   getAccessToken: () => ipcRenderer.invoke('auth:get-access-token'),
-  isAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),
+
   searchTracks: (query: string) => ipcRenderer.invoke('catalog:search-tracks', query),
   getAlbumTracks: (albumId: string) => ipcRenderer.invoke('catalog:get-album-tracks', albumId),
-  getPlaylistTracks: (playlistId: string) => ipcRenderer.invoke('catalog:get-playlist-tracks', playlistId),
+  getPlaylistTracks: (playlistId: string) =>
+    ipcRenderer.invoke('catalog:get-playlist-tracks', playlistId),
+  getFavoriteTracksPage: (cursor: string | null) =>
+    ipcRenderer.invoke('catalog:get-favorite-tracks-page', cursor),
+  getTracksByIds: (trackIds: string[]) =>
+    ipcRenderer.invoke('catalog:get-tracks-by-ids', trackIds),
+
+  // First-party web session for FULL playback — see webSessionAuth.ts
+  webLogin: () => ipcRenderer.invoke('web-auth:login'),
+  completeWebLogin: (pasted: string) =>
+    ipcRenderer.invoke('web-auth:complete-login', pasted),
+  webLogout: () => ipcRenderer.invoke('web-auth:logout'),
+  isWebSessionConnected: () => ipcRenderer.invoke('web-auth:is-connected'),
+  getWebSessionCredentials: () => ipcRenderer.invoke('web-auth:get-session-credentials'),
+  getWebPlaybackStream: (trackId: string) =>
+    ipcRenderer.invoke('web-auth:get-playback-stream', trackId),
 })
 ```
 
@@ -265,6 +371,18 @@ declare global {
       searchTracks: (query: string) => Promise<Track[]>;
       getAlbumTracks: (albumId: string) => Promise<Track[]>;
       getPlaylistTracks: (playlistId: string) => Promise<Track[]>;
+      getFavoriteTracksPage: (cursor: string | null) => Promise<FavoriteTracksPage>;
+      getTracksByIds: (trackIds: string[]) => Promise<Track[]>;
+      webLogin: () => Promise<{ success: boolean; pending: boolean; authorizeUrl?: string; error?: string }>;
+      completeWebLogin: (pasted: string) => Promise<{ success: boolean; error?: string }>;
+      webLogout: () => Promise<{ success: boolean }>;
+      isWebSessionConnected: () => Promise<boolean>;
+      getWebSessionCredentials: () => Promise<{
+        client_id: string;
+        access_token: string;
+        user_id: string | null;
+      } | null>;
+      getWebPlaybackStream: (trackId: string) => Promise<string>;
     };
   }
 }
@@ -381,7 +499,8 @@ waves-desktop/
 │   ├── main/
 │   │   ├── index.ts                 # Entry: creates BrowserWindow, registers all IPC handlers
 │   │   ├── auth.ts                  # OAuth PKCE, safeStorage token encryption/decryption, refresh
-│   │   ├── catalog.ts               # Proxy to TIDAL v2 API (search, albums, playlists, mixes)
+│   │   ├── webSessionAuth.ts        # First-party web session for FULL (non-preview) playback
+│   │   ├── catalog.ts               # Proxy to TIDAL v2 API (search, albums, playlists, mixes, liked tracks)
 │   │   ├── playCountRepository.ts   # SQLite read/write for play counts
 │   │   ├── smartShuffle.ts          # Shuffle algorithm ordered by play count
 │   │   ├── database.ts              # SQLite connection, schema migrations (better-sqlite3)
@@ -398,7 +517,7 @@ waves-desktop/
 │   ├── components/
 │   │   ├── player/                  # PlayerBar, QueuePanel
 │   │   ├── layout/                  # AppShell, sidebar
-│   │   ├── tracks/                  # TrackList
+│   │   ├── tracks/                  # TrackList, TrackContextMenu (right-click menu)
 │   │   ├── catalog/                 # Album grid, search
 │   │   ├── remote/                  # Mobile remote control UI
 │   │   └── ui/                      # shadcn/ui primitives
@@ -408,6 +527,7 @@ waves-desktop/
 │   ├── views/
 │   │   ├── LoginView.tsx
 │   │   ├── LibraryView.tsx
+│   │   ├── SongsView.tsx            # Liked tracks with infinite scroll + shuffle (WIP)
 │   │   ├── SearchView.tsx
 │   │   ├── AlbumView.tsx
 │   │   ├── PlaylistView.tsx
@@ -418,6 +538,7 @@ waves-desktop/
 │   ├── store/
 │   │   ├── playerStore.ts
 │   │   ├── queueStore.ts
+│   │   ├── songsStore.ts            # Enrichment cache for liked tracks (Map id → Track|null)
 │   │   └── sessionStore.ts
 │   │
 │   ├── services/
@@ -807,6 +928,29 @@ Milestone: app opens, user logs in, track plays with audio on Linux.
   Computed from local SQLite — no API calls. Window is user-configurable via `user_preferences`.
 - Both playlists are virtual — never written back to TIDAL.
 
+### Phase 7 — Local metadata cache (EXTRA FEATURE, planned — not started)
+*Optional per-user/per-playlist setting to cut API requests when loading a track list.
+Motivation: on a large library the wait starts growing — every screen open re-fetches
+the liked/playlist track lists from TIDAL before a single track can play.*
+
+- Store ONLY referential data locally in the existing SQLite (`node:sqlite`,
+  `electron/main/database.ts`): track ids, titles, artist/album names, durations,
+  artwork hrefs. No stream URLs, no licensing data — those always come from TIDAL
+  at playback time.
+- Sources to cache: liked tracks (`userCollectionTracks/me/relationships/items`) and
+  playlists (`playlists/{id}/relationships/items`).
+- **User opt-in, both globally and per playlist** (stored in `user_preferences`),
+  e.g. "cache liked tracks: on", "cache playlist X: on/off" — the user decides
+  which libraries/playlists to keep locally.
+- Behavior: when enabled, screen opens load the list from SQLite (fast, no network);
+  Play/Shuffle then send the SAME cached track metadata back to TIDAL — identical
+  flow, only the origin of the list changes. Cache invalidation/refresh is a
+  decision to make (e.g. manual refresh + Stale-TILL ignored).
+- Existing pieces that lean on this: the current page walk + enrichment could be
+  replaced by a background "refresh cache" job; `songsStore.enrichedById` and the
+  `getTracksByIds` enrichment stay for streaming the full metadata on playback.
+- Not wired anywhere yet — design phase only.
+
 ---
 
 ## Architectural Decisions
@@ -858,9 +1002,8 @@ serializing large datasets across the IPC bridge and allows unit testing indepen
 ### Play count increment strategy
 A play is counted only when a track plays past 30 seconds. This matches industry convention
 and avoids inflating counts from skips. The threshold is stored in `user_preferences`.
-Caveat: while playback is capped at ~30 s (see Current Status → Blocked), count
-increments land exactly at the cap boundary — revisit the threshold once full-track
-playback is resolved.
+Caveat: the first-party web session resolves full-track playback (see Current
+Status), so a play crossing 30 s is a genuine listen, not a preview cap.
 
 ### No separate backend server
 Single-user personal app. The Electron main process replaces the backend entirely — it has
@@ -876,7 +1019,7 @@ TanStack Query for server state (catalog): caching, deduplication, background re
 
 ### React Router v7
 Declarative mode, flat route tree, smaller learning surface.
-Routes: `/` (library), `/search`, `/albums/:id`, `/playlists/:id`, `/remote`.
+Routes: `/` (library), `/songs` (liked tracks), `/search`, `/albums/:id`, `/playlists/:id`, `/remote`.
 
 ---
 
@@ -965,9 +1108,9 @@ npm run lint
 
 - **TIDAL playback requires user login.** Client Credentials only gives catalog access and
   30-second previews. Full tracks require Authorization Code OAuth with the user's own account.
-  Note (2026-09-14): with Authorization Code OAuth working, playback still stopped at
-  ~30 s per track — the app likely only receives PREVIEW asset presentation on its current
-  tier. See "Blocked" in Current Status for the open investigation.
+  Note (2026-09-14): the dashboard app token only authorizes PREVIEW manifests server-side;
+  **full playback** was unlocked with a first-party web session (`webSessionAuth.ts`) — see
+  Current Status and `.opencode/plans/session-handoff-full-playback.md`.
 - **Use the TIDAL Web SDK for playback.** Streaming directly from TIDAL's CDN violates terms.
   The SDK handles DRM, stream URLs, and license acquisition.
 - **Personal use only.** Must not be distributed or made accessible to other users.
