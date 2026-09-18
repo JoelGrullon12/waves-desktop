@@ -6,11 +6,10 @@ previews) using your paid subscription.
 
 ## Project status (current phase)
 
-**Phase 3 — Full-length playback unlocked (verified 2026-09-14).** The app plays TIDAL tracks
-**without the 30-second cap**: progress bar, previous/next, search, volume, and queueing. The
-preview cause (server-side cut by TIDAL based on the developer app's tier) was solved by
-connecting a **first-party web session** from TIDAL's web player and using it in the official
-SDK's playback engine.
+The app plays TIDAL tracks **without the 30-second cap** (verified 2026-09-14): progress bar,
+previous/next, search, volume, and queueing. The preview cause (server-side cut by TIDAL based
+on the developer app's tier) was solved by connecting a **first-party web session** from
+TIDAL's web player and using it in the official SDK's playback engine.
 
 Currently working:
 
@@ -19,15 +18,13 @@ Currently working:
 - Track search plus library, album, and playlist views.
 - **Songs (liked tracks)** screen with cursor-based infinite scroll and full-library
   shuffle/play — partially functional: the context-menu actions and like hearts are still
-  UI no-ops (see `Agents.md`).
+  UI no-ops (covered by **Phase 3** of the roadmap).
 - Player with progress bar, play/pause, previous/next, queue, and volume (Widevine).
 
-Roadmap (upcoming phases):
-
-- Wire the context menu / like-unlike flows to the TIDAL collection API and add a persistent
-  shuffle/repeat control (partially done).
-- Artwork states, OS media controls (Media Session), and more views.
-- Smart shuffle + local play counts, Turso cloud sync, and mobile remote control.
+See [ROADMAP.md](./ROADMAP.md) for the complete product roadmap. Current focus: **Phase 3 —
+a complete subscription-style player** (home/library overview, release feed, artist profiles,
+dynamic queue with shuffle/repeat, functional context menu, visual settings, and search within
+your collection), which lands before the special features (smart shuffle, sync, remote, etc.).
 
 ## How full playback works
 
@@ -55,8 +52,8 @@ Waves combines both:
   for Widevine DRM.
 - **React 19 + TypeScript + Tailwind CSS 4** (base-ui/shadcn) and Vite (electron-vite).
 - **@tidal-music/player** (TIDAL web SDK) for playback (shaka/browser).
-- **zustand** (state), **@tanstack/react-query** (data), **libSQL** (local catalog),
-  **safeStorage** for token encryption.
+- **zustand** (state), **@tanstack/react-query** (data), **node:sqlite** (local DB),
+  **libSQL/Turso** (cloud sync, planned), **safeStorage** for token encryption.
 
 ## Requirements
 
@@ -161,6 +158,7 @@ resources/        App icons (placeholders)
 ```
 
 Architecture details, decisions, and known pitfalls: [AGENTS.md](./AGENTS.md).
+Product roadmap and phases: [ROADMAP.md](./ROADMAP.md).
 
 ## Legal notice
 
