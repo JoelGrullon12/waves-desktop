@@ -24,6 +24,13 @@
 > Se completa antes de las fases 4-8. Varios pendientes actuales (no-ops del menú
 > contextual, likes decorativos, shuffle one-shot, ausencia de repeat) son work items
 > de esta fase — el detalle diario está en `.opencode/plans/session-handoff-active.md`.
+>
+> **Deliverable inmediato:** el **Punto 1** (Home + pantalla de detalle de
+> playlist/álbum). El resto de los puntos se exploran en iteraciones posteriores.
+> Estado de los datos de Home (verificado contra `tidal-api-oas.json`): mixes
+> personalizados ✅ existen (userRecommendations/user*Mixes); "Most Listened" ❌ sin
+> endpoint público; últimos lanzamientos de artistas ❌ sin endpoint directo (alternativas
+> en `.opencode/plans/session-handoff-active.md`).
 
 Reproductor de música por suscripción completo, con el mismo conjunto de funciones de
 cualquier reproductor tradicional:
