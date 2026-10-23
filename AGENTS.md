@@ -144,10 +144,13 @@ A `contextBridge` preload script exposes a typed `window.api` object to the rend
 method names mirror the old Tauri `invoke()` calls so renderer changes were minimal.
 Current capabilities:
 - **Auth:** `login`, `logout`, `isAuthenticated`, `getSessionCredentials`, `getAccessToken`
-- **Catalog:** `searchTracks`, `getAlbumTracks`, `getPlaylistTracks`
-- **Liked tracks:** `getFavoriteTracksPage(cursor)`, `getTracksByIds(ids)`
+- **Catalog:** `searchTracks`, `getAlbumTracksPage`, `getPlaylistTracksPage`, `getMixTracksPage`
+- **Home / detail:** `getUserPlaylists`, `getRecentAlbums`, `getMixes`, `getAlbumDetail`,
+  `getPlaylistDetail`, `getMixDetail`
+- **Liked tracks:** `getFavoriteTracksPage(cursor)`, `getLikedTrackIdsPage(cursor)`,
+  `getTracksByIds(ids)`
 - **First-party web session (FULL playback):** `webLogin`, `completeWebLogin`, `webLogout`,
-  `isWebSessionConnected`, `getWebSessionCredentials`, `getPlaybackStream`
+  `isWebSessionConnected`, `getWebSessionCredentials`, `getWebPlaybackStream`
 
 The exact contract is typed once in `src/types/global.d.ts` — that file is the source of
 truth (do not duplicate it into docs). The `stats:*` methods (`incrementPlayCount`,
@@ -217,6 +220,11 @@ REMOTE_CONTROL_WEBSOCKET_PORT=47836
 LOCAL_SQLITE_PATH=
 ```
 
+Today the main process only reads `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET` and
+`LOCAL_SQLITE_PATH`. The redirect URI is hardcoded in `electron/main/auth.ts`
+(`TIDAL_REDIRECT_URI` is documentation only), and the `TURSO_*` / `REMOTE_CONTROL_*`
+variables are reserved for Phases 5 and 6.
+
 ## TIDAL OAuth Redirect URI
 
 TIDAL rejects the Authorization Code request (error `11102`) when the `redirect_uri` does not
@@ -275,6 +283,10 @@ Verified constraints; do not "optimize" around them:
 waves-desktop/
 ├── AGENTS.md                       # This file (CLAUDE.md imports it)
 ├── ROADMAP.md                      # Product phases & future features
+├── CLAUDE.md                       # Claude Code rules (imports this file)
+├── specs/                          # Session workflow (flujo plugin)
+│   ├── actual.md                   # Current session
+│   └── history/                    # Closed sessions (YYYY-MM-DD-<slug>.md)
 ├── README.md
 ├── .env                            # All env vars — never commit
 ├── .gitignore
@@ -283,13 +295,16 @@ waves-desktop/
 ├── tsconfig.node.json
 ├── electron-builder.yml            # Packaging: .exe (Windows), .AppImage + .deb (Linux)
 ├── electron.vite.config.ts
+├── eslint.config.js                # Flat ESLint config (typescript-eslint + react-hooks)
+├── vitest.config.ts                # Unit tests (Node environment, `@` alias)
 │
 ├── electron/                       # Electron main + preload processes
 │   ├── main/
 │   │   ├── index.ts                # Entry: creates BrowserWindow, registers all IPC handlers
 │   │   ├── auth.ts                 # OAuth PKCE, safeStorage token encryption/decryption, refresh
 │   │   ├── webSessionAuth.ts       # First-party web session for FULL (non-preview) playback
-│   │   ├── catalog.ts              # Proxy to TIDAL v2 API (search, albums, playlists, liked tracks)
+│   │   ├── catalog.ts              # Proxy to TIDAL v2 API (search, albums, playlists, mixes, liked tracks)
+│   │   ├── tidalParsers.ts         # Pure JSON:API → Track parsing (unit-tested, no electron/axios imports)
 │   │   └── database.ts             # SQLite via node:sqlite — connection + schema
 │   │
 │   └── preload/
@@ -316,9 +331,13 @@ waves-desktop/
     │   └── ui/                     # shadcn/ui primitives
     │
     ├── hooks/
-    │   └── useMediaSession.ts      # OS media keys
+    │   ├── useMediaSession.ts      # OS media keys
+    │   ├── useLogout.ts            # Stops playback, then logs out
+    │   ├── useTrackCollection.ts   # Infinite query + background prefetch + full-collection playback
+    │   └── useTrackEnrichment.ts   # Batches getTracksByIds into songsStore
     │
-    ├── lib/                        # Pure helpers (format, artwork URLs, media products, logger, random, mediaPlayback)
+    ├── lib/                        # Pure helpers (format, artwork URLs, media products, logger, random, mediaPlayback);
+    │                               #   `*.test.ts` files live next to the code they cover
     │
     ├── services/
     │   ├── tidalCatalogService.ts  # Calls window.api.* (was invoke())
@@ -328,6 +347,7 @@ waves-desktop/
     │   ├── playerStore.ts          # Volume 0-100 (converted to 0-1 for the SDK on set)
     │   ├── queueStore.ts
     │   ├── sessionStore.ts
+    │   ├── likedStore.ts           # Set of liked track ids (read-only for now)
     │   └── songsStore.ts           # Enrichment cache for liked tracks (Map id → Track|null)
     │
     ├── types/
@@ -338,7 +358,7 @@ waves-desktop/
     │
     └── views/
         ├── LoginView.tsx
-        ├── HomeView.tsx            # Library overview: playlists, mixes, releases, weekly top
+        ├── HomeView.tsx            # Library overview: playlists, mixes, new releases
         ├── SongsView.tsx           # Liked tracks with infinite scroll + full-library playback
         ├── SearchView.tsx
         ├── MediaDetailView.tsx     # Generic playlist/album/mix detail (TrackList + header)
@@ -359,13 +379,18 @@ fork all require Node >= 20/22. Use nvm on Windows: `nvm install 22` then `nvm u
 npm run dev           # Development (hot reload, opens Electron window)
 npm start             # Preview the production build
 npm run typecheck     # tsc --noEmit for tsconfig.node.json and tsconfig.json
+npm run lint          # ESLint (typescript-eslint + react-hooks)
+npm test              # Vitest unit tests (pure logic only: lib, stores, catalog parsers)
 npm run build         # Build all processes (main + preload + renderer)
+npm run verify        # typecheck + lint + test + build — run before every commit
 
 npm run package:linux # Package Linux (.AppImage + .deb) — run ON the Linux machine
 npm run package:win   # Package Windows (.exe, nsis) — run ON a Windows machine
 ```
 
-There are **no `test` or `lint` scripts** — verification is `typecheck` + `build`.
+Verification is `npm run verify`. Tests cover pure logic only; anything that needs the
+Electron runtime, the TIDAL SDK or DRM is verified manually with `npm run dev`. New pure
+logic (parsers, stores, helpers) ships with a `*.test.ts` next to it.
 
 ### Building on a fresh machine (the "clone + npm install + npm start" promise)
 
@@ -468,8 +493,9 @@ TanStack Query for server state (catalog): caching, deduplication, background re
 the box.
 
 ### React Router v8
-Declarative mode, flat route tree. Current routes: `/` (library), `/songs` (liked tracks),
-`/search`, `/albums/:albumId`, `/playlists/:playlistId`. `/remote` (mobile remote) is Phase 6.
+Declarative mode, flat route tree. Current routes: `/` (Home), `/songs` (liked tracks),
+`/search`, `/settings`, `/albums/:albumId`, `/playlists/:playlistId`,
+`/mixes/:mixType/:mixId`. `/remote` (mobile remote) is Phase 6.
 
 ## Code Conventions
 

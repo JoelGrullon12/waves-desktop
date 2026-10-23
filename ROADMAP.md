@@ -147,6 +147,7 @@ cualquier reproductor tradicional:
 - [ ] `npm install` + `typecheck` + `build` en verde (línea base real); commitear Home por temas.
 - [ ] Quitar "Most Listened"/Top 10 aleatorio de Home (vuelve en Fase 4 con play counts locales).
 - [ ] Vitest + ESLint + script `verify` (typecheck + lint + test + build); primeros tests en `lib/`, `queueStore` y parsers de `catalog.ts`.
+- [ ] **Reproducción (anotado 2026-10-22, revisar al terminar la base de calidad):** diagnosticar con `npm run dev` y logs si hay fallas reales (CDM de Widevine, sesión FULL, preview de 30 s, cortes); arreglar los bugs de reproducción conocidos (Play colgado si falla el enrichment, `removeAt` sin reprogramar el siguiente, polling/seek, unmute fijo a 80).
 - [ ] Bugs del renderer (enrichment colgado, Enter en MediaCard, `removeAt`, reset de stores al logout, etc.).
 - [ ] Hardening de main: validar/encodear IDs en URLs, chequeo de `sender`, CSP, timeouts, servidor OAuth con timeout y manejo de error, permisos 0o600.
 - [ ] Credenciales TIDAL pedidas en el primer arranque (guardadas con `safeStorage`); `.env` solo override de desarrollo.
@@ -160,6 +161,7 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 
 ## Preguntas abiertas (no se asumen)
 
+- **Fase C / reproducción:** ¿falla hoy la reproducción? Faltan síntoma, plataforma (Bazzite/Windows) y mensaje de error; se define en el diagnóstico antes de la sesión de plug-and-play.
 - **Fase C:** versión/origen exacto del CDM a vendorizar (¿Git LFS o commit directo?) y si Windows también lo necesita.
 - **Fase C:** ¿el Device Authorization Grant funciona con el client first-party `CzET4vdadNUFQ5JU`? (spike).
 

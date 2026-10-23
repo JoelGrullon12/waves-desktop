@@ -117,6 +117,9 @@ Create `.env` from `.env.example` and fill in the values (never commit `.env`):
 | `npm run dev` | Development (hot reload) — Linux flags applied automatically |
 | `npm start` | Preview the production build |
 | `npm run typecheck` | TypeScript (node + renderer) |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest unit tests (pure logic: lib, stores, catalog parsers) |
+| `npm run verify` | typecheck + lint + test + build — run before every commit |
 | `npm run build` | Build main + preload + renderer |
 | `npm run package:linux` | Package Linux (`.AppImage` + `.deb`) — run on Linux |
 | `npm run package:win` | Package Windows (`.exe`, nsis) — run on Windows |
