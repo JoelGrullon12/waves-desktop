@@ -10,7 +10,7 @@ export function QueuePanel() {
   const playTrackAt = usePlayerStore((state) => state.playTrackAt);
   const currentIndex = useQueueStore((state) => state.currentIndex);
   const tracks = useQueueStore((state) => state.tracks);
-  const removeAt = useQueueStore((state) => state.removeAt);
+  const removeFromQueue = usePlayerStore((state) => state.removeFromQueue);
 
   if (!isQueueOpen) return null;
 
@@ -82,7 +82,7 @@ export function QueuePanel() {
                     className="opacity-0 group-hover:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation();
-                      removeAt(index);
+                      void removeFromQueue(index);
                     }}
                   >
                     <X className="size-3" aria-hidden />

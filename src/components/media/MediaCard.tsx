@@ -36,7 +36,9 @@ export function MediaCard({ media, onPlay, onShuffle, onOpen }: MediaCardProps) 
       className="group w-40 shrink-0 cursor-pointer"
       onClick={() => onOpen(media)}
       onKeyDown={(event) => {
-        if (event.key === "Enter") onOpen(media);
+        // Enter on the inner Play/Shuffle buttons bubbles up here; only open the
+        // detail when the card itself has focus.
+        if (event.key === "Enter" && event.target === event.currentTarget) onOpen(media);
       }}
     >
       <div className="relative overflow-hidden rounded-lg">

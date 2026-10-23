@@ -123,6 +123,14 @@ cp -a ~/.var/app/com.mastermindzh.tidal-hifi/config/tidal-hifi/WidevineCdm/4.10.
 ```
 
 After this copy, `components.whenReady()` no longer errors and EME resolves.
+
+**Official source (2026-10-22):** the CDM is a proprietary Google binary (not open source).
+The app's own Component Updater already downloads the official package
+(`oimompecagnajdejgnnjijobebaeigek`, v4.10.3112.0) into `userData/component_crx_cache/`
+but may fail to install it, leaving `WidevineCdm/` empty (DRM error `S6001`). Without
+depending on tidal-hifi, unzip that cached CRX into
+`~/.config/waves-desktop/WidevineCdm/<version>/` (`unzip` warns about extra leading bytes; it
+still works). Automating this is planned for the plug-and-play phase (`ROADMAP.md`).
 `~/.config/waves-desktop` is the app's user data dir (app name `waves-desktop`). If it is
 ever deleted, re-run the copy (adjust `<version>` to whatever tidal-hifi ships at the time).
 

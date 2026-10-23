@@ -27,7 +27,9 @@ export function useTrackEnrichment(tracks: Track[], enabled = true): Track[] {
 
     void tidalCatalogService.getTracksByIds(batch).then((result) => {
       for (const id of batch) inFlight.delete(id);
-      if (result.success) mergeEnrichedBatch(batch, result.data);
+      // A failed batch is recorded as misses (tracks keep their slim data)
+      // so nothing waiting on enrichment, like Play, hangs forever on it.
+      mergeEnrichedBatch(batch, result.success ? result.data : []);
     });
   }, [tracks, enrichedById, mergeEnrichedBatch, enabled]);
 

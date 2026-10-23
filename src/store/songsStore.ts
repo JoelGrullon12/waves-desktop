@@ -7,6 +7,7 @@ interface SongsStore {
   // track), so it must not be requested again.
   enrichedById: Map<string, Track | null>;
   mergeEnrichedBatch: (requestedIds: string[], tracks: Track[]) => void;
+  reset: () => void;
 }
 
 export const useSongsStore = create<SongsStore>((set) => ({
@@ -19,4 +20,6 @@ export const useSongsStore = create<SongsStore>((set) => ({
       for (const track of tracks) next.set(track.id, track);
       return { enrichedById: next };
     }),
+
+  reset: () => set({ enrichedById: new Map() }),
 }));

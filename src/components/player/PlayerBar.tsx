@@ -15,6 +15,7 @@ export function PlayerBar() {
   const previous = usePlayerStore((state) => state.previous);
   const seek = usePlayerStore((state) => state.seek);
   const setVolume = usePlayerStore((state) => state.setVolume);
+  const toggleMute = usePlayerStore((state) => state.toggleMute);
   const setQueueOpen = usePlayerStore((state) => state.setQueueOpen);
 
   const total = duration || currentTrack?.duration || 0;
@@ -102,7 +103,7 @@ export function PlayerBar() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setVolume(volume === 0 ? 80 : 0)}
+          onClick={toggleMute}
           aria-label={volume === 0 ? "Unmute" : "Mute"}
         >
           {volume === 0 ? (

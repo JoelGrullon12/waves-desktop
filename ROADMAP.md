@@ -7,7 +7,7 @@
 > **La Fase 3 se completa ANTES que las features especiales (4-8):** el objetivo es
 > un reproductor de suscripción completo antes de añadir nada más.
 
-Última actualización: 2026-09-15 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
+Última actualización: 2026-10-22 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
 
 ## Completadas
 
@@ -136,7 +136,9 @@ cualquier reproductor tradicional:
 
 ## Fase C — Consolidación y plug-and-play 🔄
 
-> **Sesión 1 (2026-10-18):** base verde + calidad (Node 22, quitar Most Listened, commit de Home, ESLint, Vitest, `verify`, docs). Plan en `specs/actual.md`.
+> **Sesión 2 (cerrada 2026-10-22):** reproducción FULL arreglada (CDM instalado desde el CRX oficial), bugs del renderer, salto de temas no disponibles. Archivada en `specs/history/2026-10-22-fase-c-reproduccion-y-renderer.md`. **Siguiente (sesión 3):** hardening de main y plug-and-play (incluye automatizar el CDM).
+>
+> **Sesión 1 (cerrada 2026-10-22):** base verde + calidad (Node 22, Most Listened fuera de Home, commit de Home, ESLint, Vitest, `verify`, docs). Archivada en `specs/history/2026-10-22-fase-c-base-verde-calidad.md`. 
 
 > Se ejecuta ANTES de seguir con la Fase 3 (decisión 2026-10-18). Origen: análisis del
 > repo al tomar el proyecto desde OpenCode.
@@ -144,24 +146,24 @@ cualquier reproductor tradicional:
 **Depende de.** Node 22 disponible en la máquina de desarrollo (hoy ausente en Bazzite).
 
 **Que hay que hacer**
-- [ ] `npm install` + `typecheck` + `build` en verde (línea base real); commitear Home por temas.
-- [ ] Quitar "Most Listened"/Top 10 aleatorio de Home (vuelve en Fase 4 con play counts locales).
-- [ ] Vitest + ESLint + script `verify` (typecheck + lint + test + build); primeros tests en `lib/`, `queueStore` y parsers de `catalog.ts`.
-- [ ] **Reproducción (anotado 2026-10-22, revisar al terminar la base de calidad):** diagnosticar con `npm run dev` y logs si hay fallas reales (CDM de Widevine, sesión FULL, preview de 30 s, cortes); arreglar los bugs de reproducción conocidos (Play colgado si falla el enrichment, `removeAt` sin reprogramar el siguiente, polling/seek, unmute fijo a 80).
-- [ ] Bugs del renderer (enrichment colgado, Enter en MediaCard, `removeAt`, reset de stores al logout, etc.).
+- [x] `npm install` + `typecheck` + `build` en verde (línea base real); Home commiteado (sesión 1, `4a7b005`).
+- [x] Quitar "Most Listened"/Top 10 aleatorio de Home (vuelve en Fase 4 con play counts locales).
+- [x] Vitest + ESLint + script `verify` (typecheck + lint + test + build); primeros tests en `lib/`, `queueStore` y parsers de `catalog.ts` (35 tests; parsers extraídos a `electron/main/tidalParsers.ts`).
+- [x] **Reproducción (diagnosticado 2026-10-22: FULL falla con `S6001` porque `userData/WidevineCdm/` está vacío aunque la app descargó el CDM 4.10.3112.0; preview OK):** arreglar la instalación del CDM; diagnosticar con `npm run dev` y logs si hay fallas reales (CDM de Widevine, sesión FULL, preview de 30 s, cortes); arreglar los bugs de reproducción conocidos (Play colgado si falla el enrichment, `removeAt` sin reprogramar el siguiente, polling/seek, unmute fijo a 80).
+- [x] Bugs del renderer (enrichment colgado, Enter en MediaCard, `removeAt`, reset de stores al logout, unmute); queda el polling/seek de `playerStore`.
 - [ ] Hardening de main: validar/encodear IDs en URLs, chequeo de `sender`, CSP, timeouts, servidor OAuth con timeout y manejo de error, permisos 0o600.
 - [ ] Credenciales TIDAL pedidas en el primer arranque (guardadas con `safeStorage`); `.env` solo override de desarrollo.
 - [ ] Widevine en Linux: CDM vendorizado en el repo (privado) y copiado a `userData/WidevineCdm/` si falta.
 - [ ] Login de reproducción FULL tipo Device Authorization (spike) en lugar de pegar el `code`.
 - [ ] Validar clon limpio → `npm install` → `npm run dev` → `package:*` en Bazzite y Windows 11.
-- [ ] Sincronizar docs (IPC, rutas, árbol, `.env.example`, `TIDAL_REDIRECT_URI`).
+- [ ] Sincronizar docs: IPC, rutas, árbol y variables realmente leídas ya hechos en la sesión 1; falta `.env.example` (quitar variables que nadie lee o marcarlas como reservadas).
 
 **Criterio de aceptacion.** `npm run verify` verde en Linux y Windows; un clon limpio abre,
 inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca sin `.env` del repo.
 
 ## Preguntas abiertas (no se asumen)
 
-- **Fase C / reproducción:** ¿falla hoy la reproducción? Faltan síntoma, plataforma (Bazzite/Windows) y mensaje de error; se define en el diagnóstico antes de la sesión de plug-and-play.
+- ~~**Fase C / CDM**~~ (resuelta, ver Decisiones): si el CDM descargado por la app (fuente oficial de Google) se instala bien, ¿se adelanta el vendorizado/instalación automática? Recomendado: no en la sesión 2.
 - **Fase C:** versión/origen exacto del CDM a vendorizar (¿Git LFS o commit directo?) y si Windows también lo necesita.
 - **Fase C:** ¿el Device Authorization Grant funciona con el client first-party `CzET4vdadNUFQ5JU`? (spike).
 
@@ -175,3 +177,5 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 - **Feed de lanzamientos (2026-10-18):** se mantienen N llamadas por artista.
 - **Documentación (2026-10-18):** estática en `AGENTS.md`; `CLAUDE.md` la importa; sesiones en `specs/`.
 - **Limpieza de OpenCode (2026-10-22):** se elimina `.opencode/` y el prompt de cierre antiguo; el historial vive en `specs/history/`.
+- **CDM (2026-10-22):** el vendorizado/instalación automática se hace en la fase plug-and-play, no en la sesión 2.
+- **Estilo de commits (2026-10-22):** mensaje en inglés que empieza con un verbo en imperativo, sin prefijos `feat()`/`fix:` y sin trailers de atribución.

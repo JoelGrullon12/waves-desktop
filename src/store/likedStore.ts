@@ -11,11 +11,13 @@ interface LikedStore {
   likedIds: Set<string>;
   status: LikedStatus;
   load: () => Promise<void>;
+  reset: () => void;
 }
 
 // Module-level in-flight promise so concurrent callers (many TrackList rows)
 // share a single walk.
 let inFlight: Promise<void> | null = null;
+let walkGeneration = 0;
 
 export const useLikedStore = create<LikedStore>((set, get) => ({
   likedIds: new Set(),
@@ -26,11 +28,13 @@ export const useLikedStore = create<LikedStore>((set, get) => ({
     if (get().status === "ready") return Promise.resolve();
 
     set({ status: "loading" });
+    const generation = walkGeneration;
     const run = (async () => {
       const ids = new Set<string>();
       let cursor: string | null = null;
       for (;;) {
         const result = await tidalCatalogService.getLikedTrackIdsPage(cursor);
+        if (generation !== walkGeneration) return;
         if (!result.success) {
           set({ status: "error" });
           throw new Error(result.error);
@@ -40,6 +44,7 @@ export const useLikedStore = create<LikedStore>((set, get) => ({
         if (!result.data.nextCursor || result.data.nextCursor === cursor) break;
         cursor = result.data.nextCursor;
       }
+      if (generation !== walkGeneration) return;
       set({ status: "ready" });
     })();
     inFlight = run;
@@ -49,10 +54,18 @@ export const useLikedStore = create<LikedStore>((set, get) => ({
         // Allow a later load() to retry after a failure.
       })
       .finally(() => {
-        inFlight = null;
+        if (generation === walkGeneration) inFlight = null;
       });
 
     return run;
+  },
+
+  // A walk still running at logout would repopulate the store with the previous
+  // account's ids, so the generation counter makes it discard its results.
+  reset: () => {
+    walkGeneration += 1;
+    inFlight = null;
+    set({ likedIds: new Set(), status: "idle" });
   },
 }));
 

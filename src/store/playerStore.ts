@@ -4,6 +4,11 @@ import type { PlaybackState } from "@tidal-music/player";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import { mediaProductFor } from "@/lib/mediaProduct";
 import {
+  canSkipAnother,
+  isPlayInterruption,
+  isSkippableError,
+} from "@/lib/playbackErrors";
+import {
   playbackService,
   type PlaybackServiceClient,
 } from "@/services/playbackService";
@@ -14,6 +19,7 @@ import type { Track } from "@/types/track";
 const POSITION_POLL_INTERVAL_MS = 500;
 const DEFAULT_VOLUME = 80;
 const PREVIOUS_RESTART_THRESHOLD_S = 3;
+const NOTICE_DURATION_MS = 4000;
 
 interface PlayerStore {
   isInitialized: boolean;
@@ -23,7 +29,9 @@ interface PlayerStore {
   position: number;
   duration: number;
   volume: number;
+  volumeBeforeMute: number;
   error: string | null;
+  notice: string | null;
   isQueueOpen: boolean;
   init: () => void;
   playQueue: (tracks: Track[], startIndex: number, source: PlaybackSource) => Promise<void>;
@@ -33,6 +41,8 @@ interface PlayerStore {
   previous: () => Promise<void>;
   seek: (seconds: number) => Promise<void>;
   setVolume: (level: number) => void;
+  toggleMute: () => void;
+  removeFromQueue: (index: number) => Promise<void>;
   stopAndReset: () => Promise<void>;
   setQueueOpen: (open: boolean) => void;
 }
@@ -74,9 +84,11 @@ function scheduleNextTrack(): void {
   const queue = useQueueStore.getState();
   const nextIndex = queue.nextIndex();
   const nextTrack = nextIndex != null ? queue.getTrackAt(nextIndex) : null;
-  void playbackService.setNext(
-    nextTrack && queue.source ? mediaProductFor(nextTrack, queue.source) : undefined,
-  );
+  // An unavailable next track must not surface as an unhandled rejection that
+  // stops the current one; the transition to it will report the failure.
+  playbackService
+    .setNext(nextTrack && queue.source ? mediaProductFor(nextTrack, queue.source) : undefined)
+    .catch((error) => logToTerminal("error", `setNext failed: ${errorMessage(error)}`));
 }
 
 function findQueueIndex(referenceId: string | undefined): number {
@@ -88,7 +100,35 @@ function findQueueIndex(referenceId: string | undefined): number {
   return queue.currentIndex ?? 0;
 }
 
+// Tracks skipped in a row because TIDAL refuses to play them; reset as soon as
+// a track actually plays.
+let consecutiveSkips = 0;
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
 export const usePlayerStore = create<PlayerStore>((set, get) => {
+  const showNotice = (message: string) => {
+    clearTimeout(noticeTimer);
+    set({ notice: message });
+    noticeTimer = setTimeout(() => set({ notice: null }), NOTICE_DURATION_MS);
+  };
+
+  // Moves on from a track that cannot be played (removed from TIDAL, not
+  // licensed here...). Gives up with an error when nothing is left to skip to.
+  const skipUnplayable = async (failedTrack: Track | null, cause: unknown): Promise<void> => {
+    const queue = useQueueStore.getState();
+    const nextIndex = queue.nextIndex();
+    const title = failedTrack?.title ?? "Track";
+    if (nextIndex == null || !canSkipAnother(consecutiveSkips)) {
+      logToTerminal("error", `not skipping "${title}": ${errorMessage(cause)}`);
+      set({ error: `"${title}" is not available on TIDAL.`, isPlaying: false });
+      return;
+    }
+    consecutiveSkips += 1;
+    logToTerminal("info", `skipping unplayable track "${title}" (${errorMessage(cause)})`);
+    showNotice(`Skipped "${title}": not available on TIDAL`);
+    await get().playTrackAt(nextIndex);
+  };
+
   const createStoreClient = (): PlaybackServiceClient => ({
     onTransition: (active, duration) => {
       logToTerminal("info", `media-product-transition: ${active.productId}`);
@@ -103,6 +143,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     },
     onPlaybackStateChange: (playbackState) => {
       logToTerminal("info", `playback-state: ${playbackState}`);
+      if (playbackState === "PLAYING") consecutiveSkips = 0;
       set({ playbackState, isPlaying: playbackState === "PLAYING", error: null });
     },
     onEnded: (reason) => {
@@ -116,6 +157,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         "error",
         `playback error ${error.errorId} (${error.errorCode}): ${JSON.stringify(error)}`,
       );
+      // A skippable error while a track is PLAYING comes from preloading the
+      // next one, not from the current track, which must keep playing.
+      if (isSkippableError(error) && get().playbackState !== "PLAYING") {
+        void skipUnplayable(get().currentTrack, error);
+        return;
+      }
       set({ error: `Playback error (${error.errorId}, ${error.errorCode}).`, isPlaying: false });
     },
     onStreamingPrivilegesRevoked: (otherDevice) => {
@@ -134,7 +181,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     position: 0,
     duration: 0,
     volume: DEFAULT_VOLUME,
+    volumeBeforeMute: DEFAULT_VOLUME,
     error: null,
+    notice: null,
     isQueueOpen: false,
 
     init: () => {
@@ -173,6 +222,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           next ? mediaProductFor(next, source) : undefined,
         );
       } catch (error) {
+        if (isPlayInterruption(error)) return;
+        if (isSkippableError(error)) {
+          await skipUnplayable(track, error);
+          return;
+        }
         logToTerminal("error", `startTrack failed: ${errorMessage(error)}`);
         set({ error: `No se pudo iniciar la reproducción: ${errorMessage(error)}`, isPlaying: false });
       }
@@ -191,6 +245,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           next ? mediaProductFor(next, queue.source) : undefined,
         );
       } catch (error) {
+        if (isPlayInterruption(error)) return;
+        if (isSkippableError(error)) {
+          await skipUnplayable(track, error);
+          return;
+        }
         logToTerminal("error", `startTrack failed: ${errorMessage(error)}`);
         set({ error: `No se pudo iniciar la reproducción: ${errorMessage(error)}`, isPlaying: false });
       }
@@ -206,6 +265,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         try {
           await playbackService.resume();
         } catch (error) {
+          if (isPlayInterruption(error)) return;
           logToTerminal("error", `resume failed: ${errorMessage(error)}`);
           set({ error: `No se pudo reanudar: ${errorMessage(error)}`, isPlaying: false });
         }
@@ -241,6 +301,35 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       const clamped = Math.max(0, Math.min(100, level));
       playbackService.setVolume(clamped / 100);
       set({ volume: clamped });
+    },
+
+    toggleMute: () => {
+      const { volume, volumeBeforeMute, setVolume } = get();
+      if (volume === 0) {
+        setVolume(volumeBeforeMute || DEFAULT_VOLUME);
+      } else {
+        set({ volumeBeforeMute: volume });
+        setVolume(0);
+      }
+    },
+
+    removeFromQueue: async (index) => {
+      const queue = useQueueStore.getState();
+      const removedCurrent = index === queue.currentIndex;
+      const hadFollowingTrack = index < queue.tracks.length - 1;
+      queue.removeAt(index);
+      if (!removedCurrent) {
+        // The preloaded "next" track may be the one just removed or shifted.
+        scheduleNextTrack();
+        return;
+      }
+      // The queue index would now point at the following track while the
+      // removed one keeps playing, so move playback along explicitly.
+      if (hadFollowingTrack) {
+        await get().playTrackAt(index);
+      } else {
+        await get().stopAndReset();
+      }
     },
 
     stopAndReset: async () => {

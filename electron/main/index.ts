@@ -45,7 +45,9 @@ app.whenReady().then(async () => {
   try {
     await components.whenReady();
   } catch (reason) {
-    console.error("Widevine component install failed:", reason);
+    // The status shows which component (if any) was downloaded but not
+    // installed, which is how a missing CDM shows up as DRM error S6001.
+    console.error("Widevine component install failed:", reason, components.status());
   }
 
   registerAuthHandlers();

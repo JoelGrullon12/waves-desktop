@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/AppShell";
@@ -11,9 +11,9 @@ import { MediaDetailView } from "@/views/MediaDetailView";
 import { SearchView } from "@/views/SearchView";
 import { SettingsView } from "@/views/SettingsView";
 import { SongsView } from "@/views/SongsView";
+import { isPlayInterruption } from "@/lib/playbackErrors";
+import { queryClient } from "@/lib/queryClient";
 import "./App.css";
-
-const queryClient = new QueryClient();
 
 function App() {
   const { is_authenticated, isLoading, init } = useSessionStore();
@@ -28,6 +28,7 @@ function App() {
   // visible instead of silent.
   useEffect(() => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (isPlayInterruption(event.reason)) return;
       const message = errorMessage(event.reason);
       logToTerminal("error", `unhandled rejection: ${message}`);
       usePlayerStore.setState({ error: `Playback error: ${message}`, isPlaying: false });

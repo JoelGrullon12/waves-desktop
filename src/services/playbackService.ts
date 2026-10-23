@@ -22,6 +22,7 @@ import {
   type StreamingPrivilegesRevokedEvent,
 } from "@tidal-music/player";
 import type { CredentialsProvider } from "@tidal-music/common";
+import { errorMessage } from "@/lib/logger";
 
 // Thin, framework-agnostic wrapper around the TIDAL Web SDK. It owns event
 // wiring and forwards SDK events to a single subscriber (the player store).
@@ -100,7 +101,14 @@ export class PlaybackService {
   async startTrack(mediaProduct: MediaProduct, next?: MediaProduct): Promise<void> {
     await load(mediaProduct);
     if (next) {
-      await setNext(next);
+      // Preloading the next track fetches its manifest; if that track is
+      // unavailable (e.g. removed from TIDAL) the request fails. That must not
+      // stop the track that was just loaded from playing.
+      try {
+        await setNext(next);
+      } catch (error) {
+        console.error(`setNext failed, starting without a preloaded next track: ${errorMessage(error)}`);
+      }
     }
     await startPlayback();
   }

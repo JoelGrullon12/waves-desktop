@@ -10,6 +10,7 @@ import { usePlayerStore } from "@/store/playerStore";
 export function AppShell() {
   useMediaSession();
   const error = usePlayerStore((state) => state.error);
+  const notice = usePlayerStore((state) => state.notice);
   const initPlayer = usePlayerStore((state) => state.init);
 
   useEffect(() => {
@@ -33,6 +34,15 @@ export function AppShell() {
         >
           <CircleAlert className="size-3.5 shrink-0" aria-hidden />
           <span>{error}</span>
+        </div>
+      )}
+
+      {notice && !error && (
+        <div
+          role="status"
+          className="flex items-center justify-center gap-2 border-t border-border bg-muted px-4 py-1.5 text-xs text-muted-foreground"
+        >
+          <span>{notice}</span>
         </div>
       )}
 
