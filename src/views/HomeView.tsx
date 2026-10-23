@@ -82,10 +82,6 @@ interface HomeSectionProps {
   error?: string | null;
   isEmpty?: boolean;
   emptyText?: string;
-  // Horizontal rows render their own title (next to the scroll arrows) once the
-  // content is shown, so the section only prints the title while loading,
-  // errored or empty. Vertical sections keep the title always.
-  titleInContent?: boolean;
   children: ReactNode;
 }
 
@@ -95,13 +91,14 @@ function HomeSection({
   error,
   isEmpty,
   emptyText,
-  titleInContent = false,
   children,
 }: HomeSectionProps) {
   const showContent = !isLoading && !error && !isEmpty;
   return (
     <section className="mb-8">
-      {(!showContent || titleInContent) && <h2 className="mb-2 text-lg font-bold">{title}</h2>}
+      {/* Horizontal rows print their own title next to the scroll arrows once the
+          content shows, so the section only titles the loading/error/empty states. */}
+      {!showContent && <h2 className="mb-2 text-lg font-bold">{title}</h2>}
       {isLoading && (
         <div className="flex justify-center py-8">
           <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden />
@@ -176,8 +173,8 @@ export function HomeView() {
   // so the single "TIDAL Mixes" section merges both sources (discovery + my
   // mixes) and, per empty source, falls back to playlists already loaded from
   // the user's collection discriminated by playlistType (EDITORIAL / MIX).
-  const discoveryMixes = discoveryMixesQuery.data ?? [];
-  const myMixes = myMixesQuery.data ?? [];
+  const discoveryMixes = useMemo(() => discoveryMixesQuery.data ?? [], [discoveryMixesQuery.data]);
+  const myMixes = useMemo(() => myMixesQuery.data ?? [], [myMixesQuery.data]);
   const recommendationCards = useMemo(() => {
     const apiCards = dedupeMedia([
       ...discoveryMixes.map(mixToMedia),

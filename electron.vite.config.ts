@@ -5,7 +5,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 // electron-vite: one config drives the three builds (main, preload, renderer).
 // All three target Electron's bundled Node/Chromium, so ESM + top-level await
-// are safe everywhere econ-vite bundles.
+// are safe everywhere electron-vite bundles.
 
 export default defineConfig({
   main: {

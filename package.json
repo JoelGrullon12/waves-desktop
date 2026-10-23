@@ -10,6 +10,9 @@
     "start": "node scripts/runElectron.mjs preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build",
     "package:linux": "npm run build && electron-builder --linux",
     "package:win": "npm run build && electron-builder --win"
   },
@@ -19,9 +22,9 @@
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/geist": "^5.2.9",
+    "@libsql/client": "^0.18.0",
     "@tanstack/react-query": "^5.101.1",
     "@tidal-music/player": "^0.20.1",
-    "@libsql/client": "^0.18.0",
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -38,6 +41,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.3.1",
     "@tidal-music/common": "^0.2.1",
     "@tidal-music/event-producer": "^2.4.2",
@@ -49,7 +53,12 @@
     "electron": "github:castlabs/electron-releases#v44.1.0+wvcus",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.13.0",
     "typescript": "~5.8.3",
-    "vite": "^7.3.5"
+    "typescript-eslint": "^8.72.0",
+    "vite": "^7.3.5",
+    "vitest": "^3.2.7"
   }
 }
