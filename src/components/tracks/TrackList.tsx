@@ -1,7 +1,9 @@
 import { Heart, Pause, Play } from "lucide-react";
+import { useEffect } from "react";
 import { TrackContextMenu } from "@/components/tracks/TrackContextMenu";
 import { formatDuration } from "@/lib/format";
 import { artworkUrl } from "@/lib/tidalImage";
+import { useLikedStore, useIsLiked } from "@/store/likedStore";
 import { usePlayerStore } from "@/store/playerStore";
 import { useQueueStore, type PlaybackSource } from "@/store/queueStore";
 import type { Track } from "@/types/track";
@@ -43,6 +45,7 @@ function TrackRow({
   const isCurrent = usePlayerStore((state) => state.currentTrack?.id === track.id);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const currentQueueId = useQueueStore((state) => state.source?.sourceId);
+  const isLiked = useIsLiked(track.id);
 
   const isPlayingThisTrack = isCurrent && isPlaying && currentQueueId === source.sourceId;
   const artwork = track.album?.cover ? artworkUrl(track.album.cover, 96) : undefined;
@@ -112,10 +115,16 @@ function TrackRow({
         {showLikeButton && (
           <div
             className="pointer-events-none flex items-center justify-center"
-            title="Like"
+            title={isLiked ? "Liked" : "Like"}
             aria-hidden
           >
-            <Heart className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+            <Heart
+              className={`size-4 transition-colors ${
+                isLiked
+                  ? "fill-current text-primary"
+                  : "text-muted-foreground group-hover:text-primary"
+              }`}
+            />
           </div>
         )}
       </div>
@@ -130,6 +139,16 @@ export function TrackList({
   showLikeButton = true,
   allowRemoveFromLibrary = false,
 }: TrackListProps) {
+  const loadLikedIds = useLikedStore((state) => state.load);
+
+  // Kick off the background likes walk once, only when hearts are rendered.
+  useEffect(() => {
+    if (!showLikeButton) return;
+    void loadLikedIds().catch(() => {
+      // A failed walk leaves the hearts as unliked; a later mount retries.
+    });
+  }, [showLikeButton, loadLikedIds]);
+
   if (tracks.length === 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">No tracks found.</p>;
   }

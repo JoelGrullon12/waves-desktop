@@ -81,7 +81,7 @@ Notas Windows:
   un copiado manual a userData. En Windows el Component Updater tiene mejor
   historial; si `requestMediaKeySystemAccess('com.widevine.alpha')` falla en la
   W11, replicar el approach de copiado de la CDM (ver "How Widevine is
-  delivered" en `Agents.md`).
+  delivered" en `AGENTS.md`).
 
 ## Objetivos cumplidos / pendientes
 

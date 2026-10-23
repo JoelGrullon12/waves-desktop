@@ -1,8 +1,8 @@
 # ROADMAP — Waves Desktop
 
 > Fases de producto y features planeadas. El estado operativo diario vive en
-> `.opencode/plans/` (`session-handoff-active.md` para la sesión actual, `history/`
-> para las cerradas). Decisiones estructurales y restricciones → `Agents.md`.
+> `specs/` (`actual.md` para la sesión actual, `history/`
+> para las cerradas). Decisiones estructurales y restricciones → `AGENTS.md`.
 >
 > **La Fase 3 se completa ANTES que las features especiales (4-8):** el objetivo es
 > un reproductor de suscripción completo antes de añadir nada más.
@@ -23,24 +23,25 @@
 
 > Se completa antes de las fases 4-8. Varios pendientes actuales (no-ops del menú
 > contextual, likes decorativos, shuffle one-shot, ausencia de repeat) son work items
-> de esta fase — el detalle diario está en `.opencode/plans/session-handoff-active.md`.
+> de esta fase — el detalle diario está en `specs/actual.md`.
 >
 > **Deliverable inmediato:** el **Punto 1** (Home + pantalla de detalle de
 > playlist/álbum). El resto de los puntos se exploran en iteraciones posteriores.
 > Estado de los datos de Home (verificado contra `tidal-api-oas.json`): mixes
 > personalizados ✅ existen (userRecommendations/user*Mixes); "Most Listened" ❌ sin
 > endpoint público; últimos lanzamientos de artistas ❌ sin endpoint directo (alternativas
-> en `.opencode/plans/session-handoff-active.md`).
+> en `specs/actual.md`).
 
 Reproductor de música por suscripción completo, con el mismo conjunto de funciones de
 cualquier reproductor tradicional:
 
-1. **Home / resumen de la biblioteca** — pantalla principal con un resumen de la biblioteca
-   del usuario (reemplaza el actual "Your collection is coming soon" en `LibraryView`).
+1. **Home / resumen de la biblioteca** ✓ — pantalla principal con un resumen de la
+   biblioteca del usuario (`HomeView`: playlists al azar, mixes, lanzamientos). El bloque
+   "Most Listened"/top semanal se retira en la Fase C y vuelve en la Fase 4 con play counts locales.
 2. **Feed de lanzamientos** — últimos lanzamientos de artistas seguidos (v2 API).
 3. **Colección del usuario** — lista de playlists, carpetas y música del usuario.
-4. **Perfiles y vistas** — perfiles de artistas (`ArtistView`, hoy no existe), álbumes
-   (`AlbumView` ✓), playlists (`PlaylistView` ✓).
+4. **Perfiles y vistas** — perfiles de artistas (`ArtistView`, hoy no existe); álbumes y
+   playlists comparten la vista genérica `MediaDetailView` ✓.
 5. **Reproductor tradicional** — shuffle y **cola dinámica**, **repetición** de canciones
    (estado persistente; hoy el shuffle es one-shot y no hay repeat).
 6. **Click derecho + enlaces** — `TrackContextMenu` funcional conectado a `collection.write`
@@ -129,4 +130,46 @@ cualquier reproductor tradicional:
   al .desktop; aviso no bloqueante en el empaquetado).
 - **Pull-to-refresh / refetch por tiempo** de la colección (puede subsumirse en la Fase 3).
 - **Validación en la W11 (pendiente de usuario):** `npm install` + `npm run dev` +
-  `npm run package:win` — detalle en `.opencode/plans/session-handoff-active.md`.
+  `npm run package:win` — detalle en `specs/actual.md`.
+
+---
+
+## Fase C — Consolidación y plug-and-play 🔄
+
+> **Sesión 1 (2026-10-18):** base verde + calidad (Node 22, quitar Most Listened, commit de Home, ESLint, Vitest, `verify`, docs). Plan en `specs/actual.md`.
+
+> Se ejecuta ANTES de seguir con la Fase 3 (decisión 2026-10-18). Origen: análisis del
+> repo al tomar el proyecto desde OpenCode.
+
+**Depende de.** Node 22 disponible en la máquina de desarrollo (hoy ausente en Bazzite).
+
+**Que hay que hacer**
+- [ ] `npm install` + `typecheck` + `build` en verde (línea base real); commitear Home por temas.
+- [ ] Quitar "Most Listened"/Top 10 aleatorio de Home (vuelve en Fase 4 con play counts locales).
+- [ ] Vitest + ESLint + script `verify` (typecheck + lint + test + build); primeros tests en `lib/`, `queueStore` y parsers de `catalog.ts`.
+- [ ] Bugs del renderer (enrichment colgado, Enter en MediaCard, `removeAt`, reset de stores al logout, etc.).
+- [ ] Hardening de main: validar/encodear IDs en URLs, chequeo de `sender`, CSP, timeouts, servidor OAuth con timeout y manejo de error, permisos 0o600.
+- [ ] Credenciales TIDAL pedidas en el primer arranque (guardadas con `safeStorage`); `.env` solo override de desarrollo.
+- [ ] Widevine en Linux: CDM vendorizado en el repo (privado) y copiado a `userData/WidevineCdm/` si falta.
+- [ ] Login de reproducción FULL tipo Device Authorization (spike) en lugar de pegar el `code`.
+- [ ] Validar clon limpio → `npm install` → `npm run dev` → `package:*` en Bazzite y Windows 11.
+- [ ] Sincronizar docs (IPC, rutas, árbol, `.env.example`, `TIDAL_REDIRECT_URI`).
+
+**Criterio de aceptacion.** `npm run verify` verde en Linux y Windows; un clon limpio abre,
+inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca sin `.env` del repo.
+
+## Preguntas abiertas (no se asumen)
+
+- **Fase C:** versión/origen exacto del CDM a vendorizar (¿Git LFS o commit directo?) y si Windows también lo necesita.
+- **Fase C:** ¿el Device Authorization Grant funciona con el client first-party `CzET4vdadNUFQ5JU`? (spike).
+
+## Decisiones tomadas
+
+- **Prioridad (2026-10-18):** consolidar y lograr plug-and-play antes de nuevas features de Fase 3.
+- **Most Listened (2026-10-18):** se pospone a la Fase 4; no hay endpoint público en TIDAL.
+- **Calidad (2026-10-18):** Vitest + ESLint + `verify`.
+- **Credenciales (2026-10-18):** se piden en el primer arranque, no se empaquetan.
+- **Widevine (2026-10-18):** CDM incluido en el repo privado (binario propietario; el repo no debe hacerse público).
+- **Feed de lanzamientos (2026-10-18):** se mantienen N llamadas por artista.
+- **Documentación (2026-10-18):** estática en `AGENTS.md`; `CLAUDE.md` la importa; sesiones en `specs/`.
+- **Limpieza de OpenCode (2026-10-22):** se elimina `.opencode/` y el prompt de cierre antiguo; el historial vive en `specs/history/`.

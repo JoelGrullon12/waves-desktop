@@ -27,3 +27,17 @@ export interface FavoriteTracksPage {
   tracks: Track[];
   nextCursor: string | null;
 }
+
+// One page of any track list (album, playlist or mix). `nextCursor` is null when
+// the last page has been reached.
+export interface TrackPage {
+  tracks: Track[];
+  nextCursor: string | null;
+}
+
+// One page of the identifier-only likes walk used to drive like state. `ids` are
+// track ids; `nextCursor` is null on the last page.
+export interface LikedTrackIdsPage {
+  ids: string[];
+  nextCursor: string | null;
+}

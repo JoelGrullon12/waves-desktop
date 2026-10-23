@@ -12,7 +12,7 @@ Working tree: **limpio**. Los handoffs anteriores se archivaron en `history/`.
 1. **Validar en la máquina Windows 11 (usuario):** `nvm install 22`, `npm install`,
    `npm run dev`, `npm run package:win`. Criterios: la ventana abre sin "Electron
    uninstall"; el `.exe` se genera; Widevine resuelve o se aplica el fallback de copiado
-   de CDM (ver `Agents.md` → "How Widevine is delivered"). Runbook completo en
+   de CDM (ver `AGENTS.md` → "How Widevine is delivered"). Runbook completo en
    `history/session-handoff-build-distribution.md`.
 
 2. **Fase 3 — Reproductor completo (work items inmediatos → `ROADMAP.md`):**
@@ -31,5 +31,5 @@ Working tree: **limpio**. Los handoffs anteriores se archivaron en `history/`.
 - `history/session-handoff-liked-songs.md` — pantalla `/songs`, límites de API y lecciones técnicas.
 - `history/session-handoff-build-distribution.md` — causas raíz de build/packaging y runbook W11.
 - `history/session-handoff-full-playback.md` — sesión web first-party (FULL playback).
-- `Agents.md` — arquitectura, stack, restricciones, runbook de build.
+- `AGENTS.md` — arquitectura, stack, restricciones, runbook de build.
 - `ROADMAP.md` — fases de producto (la Fase 3 es el foco actual).

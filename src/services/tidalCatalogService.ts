@@ -1,4 +1,17 @@
-import type { FavoriteTracksPage, Track } from "@/types/track";
+import type {
+  FavoriteTracksPage,
+  LikedTrackIdsPage,
+  Track,
+  TrackPage,
+} from "@/types/track";
+import type {
+  AlbumDetail,
+  AlbumSummary,
+  MixRelationName,
+  MixSummary,
+  PlaylistDetail,
+  PlaylistSummary,
+} from "@/types/media";
 
 // All catalog data crosses the IPC boundary, so every call follows the Result
 // pattern agreed in AGENTS.md. Errors raised by the main process handlers
@@ -15,18 +28,24 @@ export class TidalCatalogService {
     }
   }
 
-  async getAlbumTracks(albumId: string): Promise<Result<Track[]>> {
+  async getAlbumTracksPage(
+    albumId: string,
+    cursor: string | null,
+  ): Promise<Result<TrackPage>> {
     try {
-      const data = await window.api.getAlbumTracks(albumId);
+      const data = await window.api.getAlbumTracksPage(albumId, cursor);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   }
 
-  async getPlaylistTracks(playlistId: string): Promise<Result<Track[]>> {
+  async getPlaylistTracksPage(
+    playlistId: string,
+    cursor: string | null,
+  ): Promise<Result<TrackPage>> {
     try {
-      const data = await window.api.getPlaylistTracks(playlistId);
+      const data = await window.api.getPlaylistTracksPage(playlistId, cursor);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -42,9 +61,85 @@ export class TidalCatalogService {
     }
   }
 
+  async getLikedTrackIdsPage(cursor: string | null): Promise<Result<LikedTrackIdsPage>> {
+    try {
+      const data = await window.api.getLikedTrackIdsPage(cursor);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
   async getTracksByIds(trackIds: string[]): Promise<Result<Track[]>> {
     try {
       const data = await window.api.getTracksByIds(trackIds);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getUserPlaylists(): Promise<Result<PlaylistSummary[]>> {
+    try {
+      const data = await window.api.getUserPlaylists();
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getRecentAlbums(): Promise<Result<AlbumSummary[]>> {
+    try {
+      const data = await window.api.getRecentAlbums();
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getMixes(relationship: MixRelationName): Promise<Result<MixSummary[]>> {
+    try {
+      const data = await window.api.getMixes(relationship);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getMixTracksPage(
+    mixType: string,
+    mixId: string,
+    cursor: string | null,
+  ): Promise<Result<TrackPage>> {
+    try {
+      const data = await window.api.getMixTracksPage(mixType, mixId, cursor);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getAlbumDetail(albumId: string): Promise<Result<AlbumDetail>> {
+    try {
+      const data = await window.api.getAlbumDetail(albumId);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getPlaylistDetail(playlistId: string): Promise<Result<PlaylistDetail>> {
+    try {
+      const data = await window.api.getPlaylistDetail(playlistId);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async getMixDetail(mixType: string, mixId: string): Promise<Result<MixSummary>> {
+    try {
+      const data = await window.api.getMixDetail(mixType, mixId);
       return { success: true, data };
     } catch (error) {
       return { success: false, error: String(error) };

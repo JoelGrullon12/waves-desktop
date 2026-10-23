@@ -107,7 +107,7 @@ Create `.env` from `.env.example` and fill in the values (never commit `.env`):
 3. **Widevine (Linux only)**: the Castlabs Component Updater can fail to auto-install the Widevine
    CDM in some environments. If `navigator.requestMediaKeySystemAccess('com.widevine.alpha')`
    rejects, copy an existing CDM into the app's user-data dir (`~/.config/waves-desktop/WidevineCdm/…`)
-   — full steps in `Agents.md` ("How Widevine is delivered").
+   — full steps in `AGENTS.md` ("How Widevine is delivered").
 
 ## Scripts
 
@@ -150,8 +150,8 @@ electron/main/    auth (Dashboard), webSessionAuth (FULL web session), catalog, 
 electron/preload/ contextBridge → window.api
 src/store/        sessionStore, playerStore (wraps the SDK), queueStore, songsStore
 src/services/     playbackService (SDK wrapper)
-src/views/        LoginView, LibraryView, SongsView (liked), SearchView, AlbumView, PlaylistView
-src/components/   PlayerBar, QueuePanel, AppShell, TrackList, ui/*
+src/views/        LoginView, HomeView, SongsView (liked), SearchView, MediaDetailView, SettingsView
+src/components/   PlayerBar, QueuePanel, AppShell, TrackList, MediaCard, HorizontalScroll, ui/*
 scripts/          ensureElectron.mjs (postinstall binary download), runElectron.mjs (dev/start)
 electron-builder.yml   Packaging config (electronDist → Castlabs fork)
 resources/        App icons (placeholders)

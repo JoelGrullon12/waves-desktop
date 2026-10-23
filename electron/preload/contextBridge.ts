@@ -10,14 +10,28 @@ contextBridge.exposeInMainWorld("api", {
   getAccessToken: () => ipcRenderer.invoke("auth:get-access-token"),
 
   searchTracks: (query: string) => ipcRenderer.invoke("catalog:search-tracks", query),
-  getAlbumTracks: (albumId: string) =>
-    ipcRenderer.invoke("catalog:get-album-tracks", albumId),
-  getPlaylistTracks: (playlistId: string) =>
-    ipcRenderer.invoke("catalog:get-playlist-tracks", playlistId),
+  getAlbumTracksPage: (albumId: string, cursor: string | null) =>
+    ipcRenderer.invoke("catalog:get-album-tracks-page", albumId, cursor),
+  getPlaylistTracksPage: (playlistId: string, cursor: string | null) =>
+    ipcRenderer.invoke("catalog:get-playlist-tracks-page", playlistId, cursor),
   getFavoriteTracksPage: (cursor: string | null) =>
     ipcRenderer.invoke("catalog:get-favorite-tracks-page", cursor),
+  getLikedTrackIdsPage: (cursor: string | null) =>
+    ipcRenderer.invoke("catalog:get-liked-track-ids-page", cursor),
   getTracksByIds: (trackIds: string[]) =>
     ipcRenderer.invoke("catalog:get-tracks-by-ids", trackIds),
+  getUserPlaylists: () => ipcRenderer.invoke("catalog:get-user-playlists"),
+  getRecentAlbums: () => ipcRenderer.invoke("catalog:get-recent-albums"),
+  getMixes: (relationship: "myMixes" | "discoveryMixes") =>
+    ipcRenderer.invoke("catalog:get-mixes", relationship),
+  getMixTracksPage: (mixType: string, mixId: string, cursor: string | null) =>
+    ipcRenderer.invoke("catalog:get-mix-tracks-page", mixType, mixId, cursor),
+  getAlbumDetail: (albumId: string) =>
+    ipcRenderer.invoke("catalog:get-album-detail", albumId),
+  getPlaylistDetail: (playlistId: string) =>
+    ipcRenderer.invoke("catalog:get-playlist-detail", playlistId),
+  getMixDetail: (mixType: string, mixId: string) =>
+    ipcRenderer.invoke("catalog:get-mix-detail", mixType, mixId),
 
   webLogin: () => ipcRenderer.invoke("web-auth:login"),
   completeWebLogin: (pasted: string) => ipcRenderer.invoke("web-auth:complete-login", pasted),

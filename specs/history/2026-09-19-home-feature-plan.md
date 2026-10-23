@@ -5,12 +5,12 @@ Working tree: limpio. El plan de la sesión anterior (restructura de docs) se
 archivó en `history/session-handoff-docs-restructure.md`.
 
 ## Resumen de esta sesión
-- Sesión de documentación: `Agents.md` quedó solo estructural (stack,
+- Sesión de documentación: `AGENTS.md` quedó solo estructural (stack,
   convenciones, decisiones, runbook, restricciones de API); se creó
   `ROADMAP.md` con fases renumeradas y una nueva Fase 3 prioritaria;
   los handoffs cerrados se movieron a `.opencode/plans/history/` (git mv) y
   se creó un plan activo de sesión.
-- Archivos principales: `Agents.md`, `README.md`, `ROADMAP.md` (nuevo),
+- Archivos principales: `AGENTS.md`, `README.md`, `ROADMAP.md` (nuevo),
   `.opencode/plans/history/{session-handoff-liked-songs,build-distribution,full-playback}.md`
   + `history/_README.md`. Commit: `6dcaad0`.
 - Decisión de diseño de la sesión: separar la documentación en 3 capas para que

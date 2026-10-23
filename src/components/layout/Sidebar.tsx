@@ -1,9 +1,8 @@
-import { Home, LogOut, Music, Search } from "lucide-react";
+import { Home, LogOut, Music, Search, Settings } from "lucide-react";
 import { NavLink } from "react-router";
 import { Button } from "@/components/ui/button";
+import { useLogout } from "@/hooks/useLogout";
 import { cn } from "@/lib/utils";
-import { usePlayerStore } from "@/store/playerStore";
-import { useSessionStore } from "@/store/sessionStore";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -14,13 +13,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   );
 
 export function Sidebar() {
-  const logout = useSessionStore((state) => state.logout);
-  const stopAndReset = usePlayerStore((state) => state.stopAndReset);
-
-  const handleLogout = async () => {
-    await stopAndReset();
-    await logout();
-  };
+  const handleLogout = useLogout();
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar">
@@ -34,7 +27,7 @@ export function Sidebar() {
       <nav className="flex flex-col gap-0.5 px-2">
         <NavLink to="/" end className={navLinkClass}>
           <Home className="size-4" aria-hidden />
-          Your Library
+          Home
         </NavLink>
         <NavLink to="/songs" className={navLinkClass}>
           <Music className="size-4" aria-hidden />
@@ -43,6 +36,10 @@ export function Sidebar() {
         <NavLink to="/search" className={navLinkClass}>
           <Search className="size-4" aria-hidden />
           Search
+        </NavLink>
+        <NavLink to="/settings" className={navLinkClass}>
+          <Settings className="size-4" aria-hidden />
+          Settings
         </NavLink>
       </nav>
 

@@ -1,27 +1,27 @@
+import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useLogout } from "@/hooks/useLogout";
 import { useSessionStore } from "@/store/sessionStore";
 
-export function LibraryView() {
-  const user_id = useSessionStore((state) => state.user_id);
+export function SettingsView() {
   const isWebSessionConnected = useSessionStore((state) => state.isWebSessionConnected);
   const webLoginPending = useSessionStore((state) => state.webLoginPending);
   const webLoginError = useSessionStore((state) => state.webLoginError);
   const webLogin = useSessionStore((state) => state.webLogin);
   const completeWebLogin = useSessionStore((state) => state.completeWebLogin);
   const webLogout = useSessionStore((state) => state.webLogout);
+  const handleLogout = useLogout();
   const [pastedCode, setPastedCode] = useState("");
 
   return (
     <div className="p-6">
       <header className="mb-8">
-        <h1 className="text-2xl font-bold">Your Library</h1>
-        <p className="text-sm text-muted-foreground">
-          {user_id != null ? `Signed in with user id ${user_id}.` : "Signed in."}
-        </p>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-sm text-muted-foreground">Playback and account configuration.</p>
       </header>
 
-      <div className="mb-8 rounded-lg border p-6">
+      <div className="rounded-lg border p-6">
         <h2 className="text-lg font-semibold">Full-length playback</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {isWebSessionConnected
@@ -61,12 +61,15 @@ export function LibraryView() {
         )}
       </div>
 
-      <div className="rounded-lg border border-dashed p-8 text-center">
-        <p className="font-medium">Your collection is coming soon.</p>
+      <div className="mt-6 rounded-lg border p-6">
+        <h2 className="text-lg font-semibold">Account</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Saved albums, playlists and favorites will live here in a later milestone. Use Search
-          to start listening right now.
+          Sign out of your TIDAL account on this device.
         </p>
+        <Button className="mt-3" variant="outline" onClick={() => void handleLogout()}>
+          <LogOut className="size-4" aria-hidden />
+          Log out
+        </Button>
       </div>
     </div>
   );

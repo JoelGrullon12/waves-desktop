@@ -6,8 +6,8 @@
 >
 > Work-in-progress state is intentionally NOT in this file:
 > - Product phases and future features → `ROADMAP.md`
-> - Current session activity and pending tasks → `.opencode/plans/session-handoff-active.md`
-> - Closed sessions → `.opencode/plans/history/`
+> - Current session activity and pending tasks → `specs/actual.md`
+> - Closed sessions → `specs/history/`
 >
 > Historical note: this project began on Tauri v2 + Rust and was fully migrated to
 > Electron (the Rust backend was removed). The target stack is **Electron** — do not
@@ -273,7 +273,7 @@ Verified constraints; do not "optimize" around them:
 
 ```
 waves-desktop/
-├── Agents.md                       # This file
+├── AGENTS.md                       # This file (CLAUDE.md imports it)
 ├── ROADMAP.md                      # Product phases & future features
 ├── README.md
 ├── .env                            # All env vars — never commit
@@ -310,6 +310,7 @@ waves-desktop/
     │
     ├── components/
     │   ├── layout/                 # AppShell, Sidebar
+    │   ├── media/                  # MediaCard, HorizontalScroll (Home rows)
     │   ├── player/                 # PlayerBar, QueuePanel
     │   ├── tracks/                 # TrackList, TrackContextMenu (right-click menu)
     │   └── ui/                     # shadcn/ui primitives
@@ -317,7 +318,7 @@ waves-desktop/
     ├── hooks/
     │   └── useMediaSession.ts      # OS media keys
     │
-    ├── lib/                        # Pure helpers (format, artwork URLs, media products, logger)
+    ├── lib/                        # Pure helpers (format, artwork URLs, media products, logger, random, mediaPlayback)
     │
     ├── services/
     │   ├── tidalCatalogService.ts  # Calls window.api.* (was invoke())
@@ -332,15 +333,16 @@ waves-desktop/
     ├── types/
     │   ├── global.d.ts             # window.api type declaration (source of truth for IPC)
     │   ├── auth.ts
+    │   ├── media.ts                # Home/detail media summaries (playlist, album, mix)
     │   └── track.ts
     │
     └── views/
         ├── LoginView.tsx
-        ├── LibraryView.tsx
+        ├── HomeView.tsx            # Library overview: playlists, mixes, releases, weekly top
         ├── SongsView.tsx           # Liked tracks with infinite scroll + full-library playback
         ├── SearchView.tsx
-        ├── AlbumView.tsx
-        └── PlaylistView.tsx
+        ├── MediaDetailView.tsx     # Generic playlist/album/mix detail (TrackList + header)
+        └── SettingsView.tsx        # Full-length playback session controls
 ```
 
 ## Build & Test Runbook

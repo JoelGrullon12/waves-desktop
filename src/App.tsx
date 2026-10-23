@@ -5,11 +5,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import { usePlayerStore } from "@/store/playerStore";
 import { useSessionStore } from "@/store/sessionStore";
-import { AlbumView } from "@/views/AlbumView";
-import { LibraryView } from "@/views/LibraryView";
+import { HomeView } from "@/views/HomeView";
 import { LoginView } from "@/views/LoginView";
-import { PlaylistView } from "@/views/PlaylistView";
+import { MediaDetailView } from "@/views/MediaDetailView";
 import { SearchView } from "@/views/SearchView";
+import { SettingsView } from "@/views/SettingsView";
 import { SongsView } from "@/views/SongsView";
 import "./App.css";
 
@@ -72,11 +72,28 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppShell />}>
-            <Route index element={<LibraryView />} />
+            <Route index element={<HomeView />} />
             <Route path="songs" element={<SongsView />} />
             <Route path="search" element={<SearchView />} />
-            <Route path="albums/:albumId" element={<AlbumView />} />
-            <Route path="playlists/:playlistId" element={<PlaylistView />} />
+            <Route path="settings" element={<SettingsView />} />
+            <Route
+              path="albums/:albumId"
+              element={<MediaDetailView type="album" idParamName="albumId" />}
+            />
+            <Route
+              path="playlists/:playlistId"
+              element={<MediaDetailView type="playlist" idParamName="playlistId" />}
+            />
+            <Route
+              path="mixes/:mixType/:mixId"
+              element={
+                <MediaDetailView
+                  type="mix"
+                  idParamName="mixId"
+                  mixTypeParamName="mixType"
+                />
+              }
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

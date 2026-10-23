@@ -18,7 +18,7 @@ const AUTHORIZE_ENDPOINT = "https://login.tidal.com/authorize";
 const TOKEN_ENDPOINT = "https://auth.tidal.com/v1/oauth2/token";
 const USERS_ME_ENDPOINT = "https://openapi.tidal.com/v2/users/me";
 const OAUTH_SCOPE =
-  "user.read collection.read collection.write playlists.read playlists.write playback search.read";
+  "user.read collection.read collection.write playlists.read playlists.write playback search.read recommendations.read";
 const REDIRECT_PORT = 8899;
 const REDIRECT_HOST = "127.0.0.1";
 const REDIRECT_PATH = "/tidal-callback";

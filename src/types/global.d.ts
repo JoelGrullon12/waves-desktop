@@ -1,4 +1,12 @@
-import type { FavoriteTracksPage, Track } from "@/types/track";
+import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
+import type {
+  AlbumDetail,
+  AlbumSummary,
+  MixRelationName,
+  MixSummary,
+  PlaylistDetail,
+  PlaylistSummary,
+} from "@/types/media";
 
 declare global {
   interface Window {
@@ -13,10 +21,25 @@ declare global {
       } | null>;
       getAccessToken: () => Promise<string | null>;
       searchTracks: (query: string) => Promise<Track[]>;
-      getAlbumTracks: (albumId: string) => Promise<Track[]>;
-      getPlaylistTracks: (playlistId: string) => Promise<Track[]>;
+      getAlbumTracksPage: (albumId: string, cursor: string | null) => Promise<TrackPage>;
+      getPlaylistTracksPage: (
+        playlistId: string,
+        cursor: string | null,
+      ) => Promise<TrackPage>;
       getFavoriteTracksPage: (cursor: string | null) => Promise<FavoriteTracksPage>;
+      getLikedTrackIdsPage: (cursor: string | null) => Promise<LikedTrackIdsPage>;
       getTracksByIds: (trackIds: string[]) => Promise<Track[]>;
+      getUserPlaylists: () => Promise<PlaylistSummary[]>;
+      getRecentAlbums: () => Promise<AlbumSummary[]>;
+      getMixes: (relationship: MixRelationName) => Promise<MixSummary[]>;
+      getMixTracksPage: (
+        mixType: string,
+        mixId: string,
+        cursor: string | null,
+      ) => Promise<TrackPage>;
+      getAlbumDetail: (albumId: string) => Promise<AlbumDetail>;
+      getPlaylistDetail: (playlistId: string) => Promise<PlaylistDetail>;
+      getMixDetail: (mixType: string, mixId: string) => Promise<MixSummary>;
       webLogin: () => Promise<{
         success: boolean;
         pending: boolean;

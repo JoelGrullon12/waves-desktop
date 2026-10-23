@@ -13,9 +13,9 @@ Cambios SIN commitear: 11 archivos modificados + 5 nuevos (working tree).
 > trabajo) — **ignorar el stash**; documentar solo el working tree actual.
 >
 > **Siguiente fase:** build/distribución (W11 falla con `electron-vite`; 404 de
-> electron al empaquetar aquí) → `.opencode/plans/session-handoff-build-distribution.md`.
+> electron al empaquetar aquí) → `2026-09-15-build-distribution.md`.
 > **Feature extra planeada:** cache local SQLite de metadata referencial (Phase 7,
-> Agents.md) para cargar listas sin requests — no iniciada.
+> AGENTS.md) para cargar listas sin requests — no iniciada.
 
 ## Qué se logró
 
@@ -53,7 +53,7 @@ Fuente: spec OpenAPI descargado en `/tmp/opencode/uct.yml` y `/tmp/opencode/trac
 5. **Límite verificado del `page[size]` de la colección de likes: 50.** Probados y
    rechazados por el edge de TIDAL con HTTP 429 (rate-limit): page[size]=500 y
    page[size]=100 — las páginas se arrastran entre retries con backoff (cada página
-   puede tardar decenas de segundos). **NO subir este valor** — ver nota en Agents.md.
+   puede tardar decenas de segundos). **NO subir este valor** — ver nota en AGENTS.md.
 
 ## Arquitectura implementada
 
@@ -138,11 +138,11 @@ Fuente: spec OpenAPI descargado en `/tmp/opencode/uct.yml` y `/tmp/opencode/trac
 
 ## Estado del working tree
 
-Nota: `Agents.md` y este mismo plan (`session-handoff-liked-songs.md`) son cambios
+Nota: `AGENTS.md` y este mismo plan (`session-handoff-liked-songs.md`) son cambios
 de esta sesión de documentación y quedan SIN commitear junto con el código.
 
 ```
- M Agents.md
+ M AGENTS.md
  M electron/main/catalog.ts
  M electron/preload/contextBridge.ts
  M src/App.tsx
@@ -166,7 +166,7 @@ Verificación: `npm run typecheck` y `npm run build` limpios.
 2.ª iteración (2026-09-15) — fix del 429 + reveal de filas + error visible:
 - `catalog.ts`: `COLLECTION_PAGE_SIZES` de `[500, 100]` → `[100]`. page[size]=500
   rate-limitea (429) y deja las páginas arrastrándose entre retries. 100 es el tope
-  verificado (documentado en Agents.md como límite de la API — no subir).
+  verificado (documentado en AGENTS.md como límite de la API — no subir).
   `MAX_TRACKS_PER_BATCH` sigue 50.
 - `SongsView.tsx`:
   - Sentinel desacoplado: ahora reveal de filas cacheadas (`visibleCount` + 50) y
@@ -186,7 +186,7 @@ Verificación: `npm run typecheck` y `npm run build` limpios.
 
 3.ª iteración (2026-09-15) — fix del observer (primera entrada) + 50/page:
 - `catalog.ts`: `COLLECTION_PAGE_SIZES` de `[100]` → `[50]`. 100 aún provocaba 429
-  en el walk. 50 es el nuevo tope verificado (Agents.md).
+  en el walk. 50 es el nuevo tope verificado (AGENTS.md).
 - `SongsView.tsx`: el `<div ref={loadMoreRef}>` se movió fuera del bloque condicional
   `{displayTracks.length > 0 && ...}` para que esté SIEMPRE en el DOM. Antes el
   observer (`useEffect([], [])`) hacía early-return cuando el sentinel no existía
