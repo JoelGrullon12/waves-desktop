@@ -11,6 +11,14 @@ import type {
 declare global {
   interface Window {
     api: {
+      getCredentialsStatus: () => Promise<{
+        configured: boolean;
+        source: "env" | "stored" | null;
+      }>;
+      saveCredentials: (
+        clientId: string,
+        clientSecret: string,
+      ) => Promise<{ success: boolean; error?: string }>;
       login: () => Promise<{ isAuthenticated: boolean; userId: string | null }>;
       logout: () => Promise<{ isAuthenticated: boolean }>;
       isAuthenticated: () => Promise<boolean>;
@@ -40,15 +48,7 @@ declare global {
       getAlbumDetail: (albumId: string) => Promise<AlbumDetail>;
       getPlaylistDetail: (playlistId: string) => Promise<PlaylistDetail>;
       getMixDetail: (mixType: string, mixId: string) => Promise<MixSummary>;
-      webLogin: () => Promise<{
-        success: boolean;
-        pending: boolean;
-        authorizeUrl?: string;
-        error?: string;
-      }>;
-      completeWebLogin: (
-        pasted: string,
-      ) => Promise<{ success: boolean; error?: string }>;
+      webLogin: () => Promise<{ success: boolean; error?: string }>;
       webLogout: () => Promise<{ success: boolean }>;
       isWebSessionConnected: () => Promise<boolean>;
       getWebSessionCredentials: () => Promise<{

@@ -1,4 +1,4 @@
-import { app, ipcMain, safeStorage, shell } from "electron";
+import { app, safeStorage, shell } from "electron";
 import { createHash, randomBytes, createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
@@ -6,13 +6,14 @@ import path from "node:path";
 import fs from "node:fs";
 import axios from "axios";
 import dotenv from "dotenv";
+import { writePrivateFile } from "./privateFile";
+import { getTidalAppCredentials } from "./tidalAppCredentials";
+import { handleTrusted } from "./secureIpc";
 
 // Load .env at module scope: with ESM, imported modules evaluate before the
 // entry module's body, so env must be ready before these constants are read.
 dotenv.config();
 
-const CLIENT_ID = process.env.TIDAL_CLIENT_ID ?? "";
-const CLIENT_SECRET = process.env.TIDAL_CLIENT_SECRET ?? "";
 const REDIRECT_URI = "http://127.0.0.1:8899/tidal-callback";
 const AUTHORIZE_ENDPOINT = "https://login.tidal.com/authorize";
 const TOKEN_ENDPOINT = "https://auth.tidal.com/v1/oauth2/token";
@@ -23,7 +24,13 @@ const REDIRECT_PORT = 8899;
 const REDIRECT_HOST = "127.0.0.1";
 const REDIRECT_PATH = "/tidal-callback";
 const TOKEN_BUNDLE_FILE = "tidal-token-bundle";
-const STATE_SECRET = createHash("sha256").update(CLIENT_SECRET).digest("base64url");
+const HTTP_TIMEOUT_MS = 15_000;
+// The user has to sign in on TIDAL's page, so the callback gets a generous but
+// finite window; otherwise the port stays bound and login never retries.
+const OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60_000;
+// Only this process ever signs and verifies the OAuth state, so a random key per
+// launch is enough.
+const STATE_SECRET = randomBytes(32);
 
 interface TokenBundle {
   accessToken: string;
@@ -74,7 +81,7 @@ function createStateToken(): string {
 function buildAuthorizationUrl(state: string, codeChallenge: string): string {
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: CLIENT_ID,
+    client_id: getTidalAppCredentials().clientId,
     redirect_uri: REDIRECT_URI,
     scope: OAUTH_SCOPE,
     state,
@@ -89,9 +96,9 @@ function saveTokenBundle(tokenBundle: TokenBundle): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const plaintext = JSON.stringify(tokenBundle);
   if (safeStorage.isEncryptionAvailable()) {
-    fs.writeFileSync(filePath, safeStorage.encryptString(plaintext));
+    writePrivateFile(filePath, safeStorage.encryptString(plaintext));
   } else {
-    fs.writeFileSync(filePath, Buffer.from(plaintext, "utf8"));
+    writePrivateFile(filePath, Buffer.from(plaintext, "utf8"));
   }
 }
 
@@ -117,11 +124,13 @@ async function exchangeCodeForTokens(
   params.set("grant_type", "authorization_code");
   params.set("code", code);
   params.set("redirect_uri", REDIRECT_URI);
-  params.set("client_id", CLIENT_ID);
+  const { clientId, clientSecret } = getTidalAppCredentials();
+  params.set("client_id", clientId);
   params.set("code_verifier", codeVerifier);
   const response = await axios.post(TOKEN_ENDPOINT, params.toString(), {
+    timeout: HTTP_TIMEOUT_MS,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    auth: { username: CLIENT_ID, password: CLIENT_SECRET },
+    auth: { username: clientId, password: clientSecret },
   });
   const data = response.data as {
     access_token: string;
@@ -137,7 +146,7 @@ async function exchangeCodeForTokens(
     accessTokenExpiresAt: expiresAt,
     refreshTokenExpiresAt: "",
     userId: null,
-    clientId: CLIENT_ID,
+    clientId,
   };
 }
 
@@ -147,10 +156,12 @@ async function refreshTokenBundle(): Promise<TokenBundle> {
   const params = new URLSearchParams();
   params.set("grant_type", "refresh_token");
   params.set("refresh_token", current.refreshToken);
-  params.set("client_id", CLIENT_ID);
+  const { clientId, clientSecret } = getTidalAppCredentials();
+  params.set("client_id", clientId);
   const response = await axios.post(TOKEN_ENDPOINT, params.toString(), {
+    timeout: HTTP_TIMEOUT_MS,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    auth: { username: CLIENT_ID, password: CLIENT_SECRET },
+    auth: { username: clientId, password: clientSecret },
   });
   const data = response.data as {
     access_token: string;
@@ -185,6 +196,7 @@ function getCurrentUserId(
 ): Promise<string | null> {
   return axios
     .get(USERS_ME_ENDPOINT, {
+      timeout: HTTP_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${accessToken}` },
     })
     .then((response) => {
@@ -209,15 +221,26 @@ async function waitForAuthorizationCode(state: string): Promise<string> {
       const code = url.searchParams.get("code");
       if (returnedState !== state || !code) {
         response.writeHead(400).end("state mismatch");
-        server.close();
-        reject(new Error("OAuth state mismatch"));
+        finish(() => reject(new Error("OAuth state mismatch")));
         return;
       }
       response.writeHead(200, { "Content-Type": "text/html" });
       response.end("<h1>¿Login realizado?</h1><p>Cierra esta pestaña.</p>");
-      server.close();
-      resolve(code);
+      finish(() => resolve(code));
     });
+
+    const timeout = setTimeout(
+      () => finish(() => reject(new Error("Timed out waiting for the TIDAL login."))),
+      OAUTH_CALLBACK_TIMEOUT_MS,
+    );
+    function finish(settle: () => void): void {
+      clearTimeout(timeout);
+      server.close();
+      settle();
+    }
+
+    // Typically EADDRINUSE when a previous login attempt still holds the port.
+    server.on("error", (error) => finish(() => reject(error)));
     server.listen(REDIRECT_PORT, REDIRECT_HOST);
   });
 }
@@ -247,32 +270,32 @@ async function logout(): Promise<void> {
 }
 
 export function registerAuthHandlers(): void {
-  ipcMain.handle("auth:login", async () => {
+  handleTrusted("auth:login", async () => {
     const tokenBundle = await login();
     return { isAuthenticated: true, userId: tokenBundle.userId };
   });
 
-  ipcMain.handle("auth:is-authenticated", async () => {
+  handleTrusted("auth:is-authenticated", async () => {
     const tokenBundle = await getValidAccessToken();
     return Boolean(tokenBundle);
   });
 
-  ipcMain.handle("auth:get-session-credentials", async () => {
+  handleTrusted("auth:get-session-credentials", async () => {
     const accessToken = await getValidAccessToken();
     if (!accessToken) return null;
     return {
       access_token: accessToken,
-      client_id: CLIENT_ID,
+      client_id: getTidalAppCredentials().clientId,
       user_id: loadTokenBundle()?.userId ?? null,
     };
   });
 
-  ipcMain.handle("auth:get-access-token", async () => {
+  handleTrusted("auth:get-access-token", async () => {
     const tokenBundle = await getValidAccessToken();
     return tokenBundle ?? null;
   });
 
-  ipcMain.handle("auth:logout", async () => {
+  handleTrusted("auth:logout", async () => {
     await logout();
     return { isAuthenticated: false };
   });

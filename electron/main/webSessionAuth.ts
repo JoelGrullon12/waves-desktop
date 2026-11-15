@@ -1,30 +1,46 @@
-import { app, ipcMain, safeStorage, shell } from "electron";
+import { app, BrowserWindow, safeStorage, session } from "electron";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writePrivateFile } from "./privateFile";
+import { handleTrusted } from "./secureIpc";
+import { authorizationCodeFromRedirect, requireResourceId } from "./validation";
 
 // First-party web session for full-length playback.
 //
 // The Developer Dashboard app token only gets PREVIEW manifests (server-side
 // decision, no client flag can override it). TIDAL grants FULL assets to the
 // user's own subscribed account through the sessions minted for its web
-// player (listen.tidal.com). This module obtains that first-party session via
+// player (tidal.com). This module obtains that first-party session via
 // the same public PKCE flow the web player uses, stores it separately from
 // the dashboard-app token, and serves it only for playback purposes.
 //
-// The flow runs in the user's system browser (same pattern as the dashboard
-// login in auth.ts, which cannot capture subscription-level sessions). The
-// user signs in to TIDAL, is redirected to listen.tidal.com/login/auth with a
-// code, and pastes that code back into the app which completes the exchange.
+// The flow runs in a small sign-in window owned by the app (the web client's
+// redirect URI is tidal.com, so no local callback server can receive
+// it, and TIDAL refuses Device Authorization for this client). The window
+// watches its own navigation and captures the `?code=` of the redirect to
+// tidal.com/login/auth before that page loads, then closes.
 
-const WEB_CLIENT_ID = "CzET4vdadNUFQ5JU"; // listen.tidal.com desktop client
-const WEB_REDIRECT_URI = "https://listen.tidal.com/login/auth";
+// Client of the web player at tidal.com. It replaced the older listen.tidal.com
+// client (CzET4vdadNUFQ5JU), whose authorize URL TIDAL now answers with a
+// generic "something went wrong" page.
+const WEB_CLIENT_ID = "49YxDN9a2aFV6RTG";
+const WEB_REDIRECT_URI = "https://tidal.com/login/auth";
 const WEB_AUTHORIZE_ENDPOINT = "https://login.tidal.com/authorize";
 const WEB_TOKEN_ENDPOINT = "https://login.tidal.com/oauth2/token";
-const WEB_PLAYER_ORIGIN = "https://listen.tidal.com";
+const WEB_PLAYER_ORIGIN = "https://tidal.com";
 const WEB_SESSION_FILE = "tidal-web-session";
-const WEB_LOGIN_PENDING_CODE_VERIFIER = "waves-web-login-pending";
+// Persistent so TIDAL's own web player (tidal.com) loaded by the app can reuse
+// the sign-in; cleared on logout.
+export const TIDAL_WEB_PARTITION = "persist:tidal-web";
+const WEB_LOGIN_TIMEOUT_MS = 10 * 60_000;
+const WEB_LOGIN_LOAD_ATTEMPTS = 2;
+const WEB_LOGIN_RETRY_DELAY_MS = 1000;
+// Chromium reports a navigation replaced by another one (e.g. a redirect) as
+// ERR_ABORTED; that is not a failure.
+const NET_ERROR_ABORTED = -3;
 const TOKEN_REFRESH_LEAD_TIME_MS = 60_000;
+const HTTP_TIMEOUT_MS = 15_000;
 
 interface WebTokenBundle {
   accessToken: string;
@@ -33,14 +49,7 @@ interface WebTokenBundle {
   userId: string | null;
 }
 
-interface WebLoginPendingResult {
-  success: boolean;
-  pending: boolean;
-  authorizeUrl?: string;
-  error?: string;
-}
-
-interface WebCompleteLoginResult {
+interface WebLoginResult {
   success: boolean;
   error?: string;
 }
@@ -80,9 +89,9 @@ function saveWebSession(bundle: WebTokenBundle): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const plaintext = JSON.stringify(bundle);
   if (safeStorage.isEncryptionAvailable()) {
-    fs.writeFileSync(filePath, safeStorage.encryptString(plaintext));
+    writePrivateFile(filePath, safeStorage.encryptString(plaintext));
   } else {
-    fs.writeFileSync(filePath, Buffer.from(plaintext, "utf8"));
+    writePrivateFile(filePath, Buffer.from(plaintext, "utf8"));
   }
 }
 
@@ -120,6 +129,7 @@ async function exchangeWebCode(code: string, codeVerifier: string): Promise<WebT
       Origin: WEB_PLAYER_ORIGIN,
     },
     body: params.toString(),
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
   });
   if (!response.ok) {
     const body = await response.text();
@@ -160,6 +170,7 @@ async function refreshWebSession(bundle: WebTokenBundle): Promise<WebTokenBundle
       Origin: WEB_PLAYER_ORIGIN,
     },
     body: params.toString(),
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
   });
   if (!response.ok) {
     const body = await response.text();
@@ -222,72 +233,156 @@ export async function logoutWebSession(): Promise<void> {
   } catch {
     /* ignore */
   }
-  try {
-    fs.unlinkSync(path.join(app.getPath("userData"), WEB_LOGIN_PENDING_CODE_VERIFIER));
-  } catch {
-    /* ignore */
-  }
+  await session.fromPartition(TIDAL_WEB_PARTITION).clearStorageData();
 }
 
-function savePendingCodeVerifier(codeVerifier: string): void {
-  const filePath = path.join(app.getPath("userData"), WEB_LOGIN_PENDING_CODE_VERIFIER);
-  fs.writeFileSync(filePath, codeVerifier, "utf8");
+function captureAuthorizationCode(authorizeUrl: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const loginWindow = new BrowserWindow({
+      width: 480,
+      height: 740,
+      title: "Sign in to TIDAL",
+      autoHideMenuBar: true,
+      parent: BrowserWindow.getAllWindows()[0],
+      webPreferences: {
+        partition: TIDAL_WEB_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        // Linux builds run with --no-sandbox (see index.ts), and a window that
+        // asks for the sandbox there can fail to launch its renderer process.
+        // No preload is attached, so the page still has no access to Node.
+        sandbox: process.platform !== "linux",
+      },
+    });
+
+    let isSettled = false;
+    const finish = (settle: () => void): void => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
+      if (!loginWindow.isDestroyed()) loginWindow.close();
+      settle();
+    };
+    const timeout = setTimeout(
+      () => finish(() => reject(new Error("Timed out waiting for the TIDAL sign-in."))),
+      WEB_LOGIN_TIMEOUT_MS,
+    );
+
+    const inspectNavigation = (event: { preventDefault: () => void }, url: string): void => {
+      const code = authorizationCodeFromRedirect(url, WEB_REDIRECT_URI);
+      if (!code) return;
+      // Stop the window from loading tidal.com; only the code matters.
+      event.preventDefault();
+      finish(() => resolve(code));
+    };
+
+    const { webContents } = loginWindow;
+    webContents.on("will-redirect", (event, url) => inspectNavigation(event, url));
+    webContents.on("will-navigate", (event, url) => inspectNavigation(event, url));
+    webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    loginWindow.on("closed", () =>
+      finish(() => reject(new Error("The sign-in window was closed before finishing."))),
+    );
+
+    // Only origin + path are logged: the query string of the final redirect
+    // carries the authorization code.
+    const describeUrl = (url: string): string => {
+      try {
+        const parsed = new URL(url);
+        return `${parsed.origin}${parsed.pathname}`;
+      } catch {
+        return "(invalid url)";
+      }
+    };
+    webContents.on("did-navigate", (_event, url) =>
+      console.info(`web-login: navigated to ${describeUrl(url)}`),
+    );
+    webContents.on("did-finish-load", () => {
+      console.info(`web-login: finished loading ${describeUrl(webContents.getURL())}`);
+      // Tells an empty page (nothing was rendered, e.g. a challenge that never
+      // completes) apart from a page that has content the window fails to paint.
+      webContents
+        .executeJavaScript(
+          `({ title: document.title, textLength: document.body?.innerText.length ?? 0, ` +
+            `elementCount: document.querySelectorAll("*").length, frameCount: window.frames.length })`,
+        )
+        .then((stats) => console.info(`web-login: page content ${JSON.stringify(stats)}`))
+        .catch(() => {});
+      const frameUrls = webContents.mainFrame.framesInSubtree.map((frame) => describeUrl(frame.url));
+      console.info(`web-login: frames ${JSON.stringify(frameUrls)}`);
+      webContents
+        .executeJavaScript(
+          `[...document.querySelectorAll("script,iframe,link,noscript")].map((element) => {
+            const source = element.src || element.href || "";
+            let where = "inline";
+            try { const parsed = new URL(source); where = parsed.origin + parsed.pathname; } catch {}
+            return element.tagName.toLowerCase() + " " + where.slice(0, 140);
+          })`,
+        )
+        .then((elements) => console.info(`web-login: page elements ${JSON.stringify(elements)}`))
+        .catch(() => {});
+    });
+    webContents.on("console-message", (event) => {
+      if (event.level === "error" || event.level === "warning") {
+        console.info(`web-login: page ${event.level}: ${event.message.slice(0, 200)}`);
+      }
+    });
+    // The page is an empty shell plus one frame; knowing which host that frame
+    // loads (and whether it fails) shows what the blank area is waiting for.
+    webContents.on("did-frame-navigate", (_event, url, httpResponseCode, _statusText, isMainFrame) => {
+      if (!isMainFrame) {
+        console.info(`web-login: frame navigated to ${describeUrl(url)} (HTTP ${httpResponseCode})`);
+      }
+    });
+    webContents.on("did-frame-finish-load", (_event, isMainFrame) => {
+      if (!isMainFrame) console.info("web-login: frame finished loading");
+    });
+    webContents.on("render-process-gone", (_event, details) =>
+      console.error(`web-login: page process gone (${details.reason}, exit code ${details.exitCode})`),
+    );
+
+    // A transient network failure used to close the window at once with no
+    // trace; log the reason and retry before giving up.
+    let loadAttempts = 0;
+    const loadSignInPage = (): void => {
+      loadAttempts += 1;
+      // Failures are handled through did-fail-load below; the promise also
+      // rejects when preventDefault() aborts the navigation after the code was
+      // captured, which is expected.
+      loginWindow.loadURL(authorizeUrl).catch(() => {});
+    };
+    webContents.on("did-fail-load", (_event, errorCode, errorDescription, failedUrl, isMainFrame) => {
+      if (!isMainFrame) {
+        console.error(
+          `web-login: frame failed to load (${errorDescription}, ${errorCode}): ${describeUrl(failedUrl)}`,
+        );
+        return;
+      }
+      if (errorCode === NET_ERROR_ABORTED || isSettled) return;
+      console.error(
+        `web-login: sign-in page failed to load (${errorDescription}, ${errorCode}), ` +
+          `attempt ${loadAttempts}/${WEB_LOGIN_LOAD_ATTEMPTS}: ${failedUrl.split("?")[0]}`,
+      );
+      if (loadAttempts < WEB_LOGIN_LOAD_ATTEMPTS) {
+        setTimeout(() => !isSettled && loadSignInPage(), WEB_LOGIN_RETRY_DELAY_MS);
+      } else {
+        finish(() =>
+          reject(new Error(`Could not load the TIDAL sign-in page (${errorDescription}, ${errorCode}).`)),
+        );
+      }
+    });
+    loadSignInPage();
+  });
 }
 
-function loadPendingCodeVerifier(): string | null {
-  const filePath = path.join(app.getPath("userData"), WEB_LOGIN_PENDING_CODE_VERIFIER);
-  try {
-    return fs.readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-async function startWebLoginFlow(): Promise<WebLoginPendingResult> {
-  const existing = await getValidWebAccessToken();
-  if (existing) {
-    return { success: true, pending: false };
-  }
+async function loginWithSignInWindow(): Promise<WebLoginResult> {
+  if (await getValidWebAccessToken()) return { success: true };
   const { codeVerifier, codeChallenge } = generatePkcePair();
-  savePendingCodeVerifier(codeVerifier);
-  const authorizeUrl = buildAuthorizationUrl("r_usr w_usr", codeChallenge);
-  await shell.openExternal(authorizeUrl);
-  return { success: true, pending: true, authorizeUrl };
-}
-
-function extractCodeFromPaste(pasted: string): string | null {
-  const trimmed = pasted.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = new URL(trimmed);
-    const code = parsed.searchParams.get("code");
-    return code ?? null;
-  } catch {
-    return trimmed;
-  }
-}
-
-async function completeWebLoginFlow(pasted: string): Promise<WebCompleteLoginResult> {
-  const code = extractCodeFromPaste(pasted);
-  if (!code) {
-    return { success: false, error: "No authorization code found." };
-  }
-  const codeVerifier = loadPendingCodeVerifier();
-  if (!codeVerifier) {
-    return { success: false, error: "No pending login. Start the flow again before completing it." };
-  }
-  try {
-    const bundle = await exchangeWebCode(code, codeVerifier);
-    saveWebSession(bundle);
-    try {
-      fs.unlinkSync(path.join(app.getPath("userData"), WEB_LOGIN_PENDING_CODE_VERIFIER));
-    } catch {
-      /* ignore */
-    }
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
+  const code = await captureAuthorizationCode(
+    buildAuthorizationUrl("r_usr w_usr", codeChallenge),
+  );
+  saveWebSession(await exchangeWebCode(code, codeVerifier));
+  return { success: true };
 }
 
 // Fetches a full-quality stream URL for a track through the web player's
@@ -305,6 +400,7 @@ export async function fetchPlaybackStreamUrl(
 
   const response = await fetch(endpoint, {
     method: "GET",
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Origin: WEB_PLAYER_ORIGIN,
@@ -333,39 +429,29 @@ export async function fetchPlaybackStreamUrl(
 }
 
 export function registerWebSessionHandlers(): void {
-  ipcMain.handle("web-auth:is-connected", () => isWebSessionConnected());
+  handleTrusted("web-auth:is-connected", () => isWebSessionConnected());
 
-  ipcMain.handle("web-auth:login", async (): Promise<WebLoginPendingResult> => {
+  handleTrusted("web-auth:login", async (): Promise<WebLoginResult> => {
     try {
-      return await startWebLoginFlow();
+      return await loginWithSignInWindow();
     } catch (error) {
-      return {
-        success: false,
-        pending: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle(
-    "web-auth:complete-login",
-    async (_event, pasted: string): Promise<WebCompleteLoginResult> => {
-      return await completeWebLoginFlow(pasted);
-    },
-  );
-
-  ipcMain.handle("web-auth:logout", async () => {
+  handleTrusted("web-auth:logout", async () => {
     await logoutWebSession();
     return { success: true };
   });
 
-  ipcMain.handle("web-auth:get-session-credentials", () => getWebSessionCredentials());
+  handleTrusted("web-auth:get-session-credentials", () => getWebSessionCredentials());
 
-  ipcMain.handle("web-auth:get-playback-stream", async (_event, trackId: string) => {
+  handleTrusted("web-auth:get-playback-stream", async (_event, trackId) => {
+    const validTrackId = requireResourceId(trackId, "track id");
     const accessToken = await getValidWebAccessToken();
     if (!accessToken) {
       throw new Error("Playback session not connected.");
     }
-    return await fetchPlaybackStreamUrl(trackId, accessToken);
+    return await fetchPlaybackStreamUrl(validTrackId, accessToken);
   });
 }

@@ -111,28 +111,16 @@ the CDM; the main process awaits `components.whenReady()` before creating the
 returns no component for this request). `components.whenReady()` is wrapped in try/catch in
 `electron/main/index.ts` so the window still opens.
 
-**Working fallback (used 2026-09-14):** pre-install an existing Widevine CDM into the app
-user data. Chromium accepts a CDM present on disk in the standard layout (a `<version>`
-directory holding `manifest.json` + `libwidevinecdm.so` under `WidevineCdm/`). Reuse the
-tidal-hifi CDM that already exists on the machine:
-
-```bash
-mkdir -p ~/.config/waves-desktop/WidevineCdm/4.10.3050.0
-cp -a ~/.var/app/com.mastermindzh.tidal-hifi/config/tidal-hifi/WidevineCdm/4.10.3050.0/. \
-  ~/.config/waves-desktop/WidevineCdm/4.10.3050.0/
-```
-
-After this copy, `components.whenReady()` no longer errors and EME resolves.
-
-**Official source (2026-10-22):** the CDM is a proprietary Google binary (not open source).
-The app's own Component Updater already downloads the official package
-(`oimompecagnajdejgnnjijobebaeigek`, v4.10.3112.0) into `userData/component_crx_cache/`
-but may fail to install it, leaving `WidevineCdm/` empty (DRM error `S6001`). Without
-depending on tidal-hifi, unzip that cached CRX into
-`~/.config/waves-desktop/WidevineCdm/<version>/` (`unzip` warns about extra leading bytes; it
-still works). Automating this is planned for the plug-and-play phase (`ROADMAP.md`).
-`~/.config/waves-desktop` is the app's user data dir (app name `waves-desktop`). If it is
-ever deleted, re-run the copy (adjust `<version>` to whatever tidal-hifi ships at the time).
+**Automatic install (2026-10-23):** the Component Updater downloads the official package
+(`oimompecagnajdejgnnjijobebaeigek`) into `userData/component_crx_cache/` but may fail to
+install it, leaving `WidevineCdm/` empty (DRM error `S6001`). `electron/main/widevineInstaller.ts`
+unpacks that cached CRX into `userData/WidevineCdm/<version>/` (and writes
+`latest-component-updated-widevine-cdm`) when no version folder exists. It runs before and
+after `components.whenReady()`; on a clean first launch the package is only downloaded during
+`whenReady()`, so DRM is available from the **next** launch (accepted: the app needs network
+anyway). The CRX/ZIP reading lives in `electron/main/crxArchive.ts` on `node:zlib` — no archive
+dependency, and no CDM binary is vendored in the repo. `~/.config/waves-desktop` is the user
+data dir (app name `waves-desktop`).
 
 ### Main Process (Node.js)
 
@@ -151,14 +139,22 @@ ever deleted, re-run the copy (adjust `<version>` to whatever tidal-hifi ships a
 A `contextBridge` preload script exposes a typed `window.api` object to the renderer;
 method names mirror the old Tauri `invoke()` calls so renderer changes were minimal.
 Current capabilities:
+- **App credentials:** `getCredentialsStatus`, `saveCredentials` (TIDAL dashboard
+  `client_id`/`client_secret`, asked on first launch)
 - **Auth:** `login`, `logout`, `isAuthenticated`, `getSessionCredentials`, `getAccessToken`
 - **Catalog:** `searchTracks`, `getAlbumTracksPage`, `getPlaylistTracksPage`, `getMixTracksPage`
 - **Home / detail:** `getUserPlaylists`, `getRecentAlbums`, `getMixes`, `getAlbumDetail`,
   `getPlaylistDetail`, `getMixDetail`
 - **Liked tracks:** `getFavoriteTracksPage(cursor)`, `getLikedTrackIdsPage(cursor)`,
   `getTracksByIds(ids)`
-- **First-party web session (FULL playback):** `webLogin`, `completeWebLogin`, `webLogout`,
-  `isWebSessionConnected`, `getWebSessionCredentials`, `getWebPlaybackStream`
+- **First-party web session (FULL playback):** `webLogin` (opens a sign-in window that captures
+  the redirect code by itself), `webLogout`, `isWebSessionConnected`,
+  `getWebSessionCredentials`, `getWebPlaybackStream`
+
+Every handler is registered through `handleTrusted` (`electron/main/secureIpc.ts`): the sender
+frame must be the dev server or a `file:` page, and every argument is validated by
+`electron/main/validation.ts` (IDs `[A-Za-z0-9_-]{1,64}`, bounded cursors/queries/lists) before it
+reaches a URL. New handlers must follow the same pattern.
 
 The exact contract is typed once in `src/types/global.d.ts` — that file is the source of
 truth (do not duplicate it into docs). The `stats:*` methods (`incrementPlayCount`,
@@ -228,10 +224,12 @@ REMOTE_CONTROL_WEBSOCKET_PORT=47836
 LOCAL_SQLITE_PATH=
 ```
 
-Today the main process only reads `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET` and
-`LOCAL_SQLITE_PATH`. The redirect URI is hardcoded in `electron/main/auth.ts`
-(`TIDAL_REDIRECT_URI` is documentation only), and the `TURSO_*` / `REMOTE_CONTROL_*`
-variables are reserved for Phases 5 and 6.
+`TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET` are a **development override**: a packaged build asks
+for them on first launch and stores them encrypted (`safeStorage`, file mode 0600) in
+`userData/tidal-app-credentials`. When both are set in `.env` they win over the stored ones.
+Besides those, the main process only reads `LOCAL_SQLITE_PATH`. The redirect URI is hardcoded in
+`electron/main/auth.ts` (`TIDAL_REDIRECT_URI` is documentation only), and the `TURSO_*` /
+`REMOTE_CONTROL_*` variables are reserved for Phases 5 and 6 (see `.env.example`).
 
 ## TIDAL OAuth Redirect URI
 
@@ -310,7 +308,13 @@ waves-desktop/
 │   ├── main/
 │   │   ├── index.ts                # Entry: creates BrowserWindow, registers all IPC handlers
 │   │   ├── auth.ts                 # OAuth PKCE, safeStorage token encryption/decryption, refresh
-│   │   ├── webSessionAuth.ts       # First-party web session for FULL (non-preview) playback
+│   │   ├── tidalAppCredentials.ts  # First-launch TIDAL client id/secret (safeStorage) + IPC
+│   │   ├── webSessionAuth.ts       # First-party web session for FULL playback (sign-in window)
+│   │   ├── secureIpc.ts            # handleTrusted: sender check for every IPC handler
+│   │   ├── validation.ts           # Pure argument validation, sender trust, credential parsing
+│   │   ├── privateFile.ts          # Writes files with mode 0600
+│   │   ├── widevineInstaller.ts    # Unpacks the cached Widevine CRX into userData
+│   │   ├── crxArchive.ts           # CRX3 header + minimal ZIP reader (node:zlib, pure)
 │   │   ├── catalog.ts              # Proxy to TIDAL v2 API (search, albums, playlists, mixes, liked tracks)
 │   │   ├── tidalParsers.ts         # Pure JSON:API → Track parsing (unit-tested, no electron/axios imports)
 │   │   └── database.ts             # SQLite via node:sqlite — connection + schema
@@ -412,7 +416,7 @@ logic (parsers, stores, helpers) ships with a `*.test.ts` next to it.
 
 ### Linux launch runbook (do not remove these flags)
 
-`npm run dev` and `npm start` bake two Chromium flags into the scripts. They are appended by
+`npm run dev` and `npm start` bake three Chromium flags into the scripts. They are appended by
 `scripts/runElectron.mjs` **only on Linux**; Windows runs without them.
 
 - `--noSandbox` (electron-vite flag → puts `--no-sandbox` on Electron's argv).
@@ -425,8 +429,17 @@ logic (parsers, stores, helpers) ships with a `*.test.ts` next to it.
   launch failed: error_code=1002" then FATAL "GPU process isn't usable"), even with
   `--disable-gpu`. In-process GPU boots reliably.
 
+- `--no-zygote` (passthrough after `--`, like `--in-process-gpu`).
+  WHY (2026-11-14): in some launches (seen from the VS Code terminal) Chromium's zygote
+  processes disappear shortly after startup. Without a zygote no new renderer can start: the
+  TIDAL sign-in window then stays blank because the cross-site iframe of TIDAL's device check
+  (`geo.captcha-delivery.com`) is cancelled with `net::ERR_ABORTED`, and a window that needs a
+  fresh renderer fails with `launch-failed`. Reproduced by killing the zygotes of a test
+  instance; with `--no-zygote` Chromium launches each process directly and both the sign-in
+  page and Widevine (`createMediaKeys`) work. Only valid together with `--no-sandbox`.
+
 During packaging they are replicated via `linux.executableArgs: ["--no-sandbox",
-"--in-process-gpu"]` in `electron-builder.yml`.
+"--in-process-gpu", "--no-zygote"]` in `electron-builder.yml`.
 
 ## Architectural Decisions
 
@@ -451,6 +464,20 @@ user-facing configuration needed. Significant improvement over `tauri-plugin-key
 which required manually enabling KWallet's Secret Service API on KDE. The encrypted blob is
 written to a file in `app.getPath('userData')` — useless without the OS user's key.
 
+### Content Security Policy (production only)
+`electron.vite.config.ts` injects a CSP `<meta>` into the **built** `index.html` only (dev needs
+inline scripts for hot reload). Scripts/workers are limited to the app; `https:`/`wss:` stay open
+for `connect-src`/`img-src`/`media-src` because the TIDAL SDK talks to several TIDAL hosts. If
+audio breaks only in `npm start`/packaged builds, check this policy first.
+
+### Sign-in window must stay a plain Electron window
+`webSessionAuth.ts` opens `login.tidal.com/authorize` in an app-owned `BrowserWindow`. TIDAL answers
+first with a transparent device check (`geo.captcha-delivery.com` interstitial, HTTP 403) that
+resolves by itself in a few seconds and reloads into the real login page. **Do not alter the
+window's user agent or other fingerprint:** overriding it (stripping the `Electron/` token) made
+the check hang on a blank page. Verified 2026-11-14 by driving the built app over the debug port:
+the login page rendered. Its `web-login:` log lines are the first thing to read if it goes blank.
+
 ### Renderer never holds credentials
 `contextIsolation: true`, `nodeIntegration: false`. All credential access goes through
 `ipcMain` handlers. The renderer calls `window.api.*` and receives only the data it needs
@@ -470,7 +497,7 @@ calls `window.api.getSessionCredentials()` — the renderer never stores tokens.
 
 ### Playback session token priority
 Two credential sources exist; `buildCredentialsProvider().getCredentials()` branches: the
-**first-party web session** (web player, client `CzET4vdadNUFQ5JU`) when connected, the
+**first-party web session** (web player at `tidal.com`, client `49YxDN9a2aFV6RTG`; the older `listen.tidal.com` client `CzET4vdadNUFQ5JU` is rejected by TIDAL since 2026-11) when connected, the
 **Dashboard app token** otherwise. Dashboard tokens only ever produce PREVIEW manifests
 (`assetPresentation` is decided server-side by token tier); the first-party web session
 produces `FULL`. The SDK requests credentials on every `load`, so connecting the session is
@@ -543,6 +570,9 @@ type Result<T> = { success: true; data: T } | { success: false; error: string }
 
 ## Key Constraints
 
+- **No new npm dependencies without a strong reason.** Prefer Node/Electron built-ins (`fetch`,
+  `node:zlib`, `safeStorage`, `node:sqlite`) — the CRX/ZIP reader and argument validation are
+  hand-written for this reason.
 - **TIDAL playback requires user login.** Client Credentials only gives catalog access and
   30-second previews. Full tracks require Authorization Code OAuth with the user's own
   account; the Dashboard app token only authorizes PREVIEW manifests server-side. Full

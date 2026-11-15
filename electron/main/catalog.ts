@@ -1,6 +1,14 @@
 import axios from "axios";
-import type { IpcMain } from "electron";
 import { getValidAccessToken } from "./auth";
+import { handleTrusted } from "./secureIpc";
+import {
+  optionalCursor,
+  requireCollectionName,
+  requireMixRelationship,
+  requireResourceId,
+  requireResourceIdList,
+  requireSearchQuery,
+} from "./validation";
 import {
   indexResources,
   attributeString,
@@ -34,6 +42,7 @@ import {
 const TIDAL_CATALOG_BASE = "https://openapi.tidal.com/v2";
 const DEFAULT_COUNTRY_CODE = "US";
 const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
+const HTTP_TIMEOUT_MS = 15_000;
 
 interface PlaylistSummary {
   id: string;
@@ -108,6 +117,7 @@ async function fetchJson(url: string): Promise<unknown> {
   for (let attempt = 0; ; attempt++) {
     try {
       const response = await axios.get(url, {
+        timeout: HTTP_TIMEOUT_MS,
         headers: {
           Accept: JSON_API_MEDIA_TYPE,
           Authorization: `Bearer ${accessToken}`,
@@ -674,41 +684,42 @@ export async function getMixTracksPage(mixType: string, mixId: string, cursor: s
   return { tracks, nextCursor: nextPageCursor };
 }
 
-export function registerCatalogHandlers(ipcMain: IpcMain): void {
-  ipcMain.handle("catalog:search-tracks", (_event, query: string) => searchTracks(query));
-  ipcMain.handle("catalog:get-album-tracks-page", (_event, albumId: string, cursor: string | null) =>
-    getAlbumTracksPage(albumId, cursor),
+export function registerCatalogHandlers(): void {
+  handleTrusted("catalog:search-tracks", (_event, query) => searchTracks(requireSearchQuery(query)));
+  handleTrusted("catalog:get-album-tracks-page", (_event, albumId, cursor) =>
+    getAlbumTracksPage(requireResourceId(albumId, "album id"), optionalCursor(cursor)),
   );
-  ipcMain.handle(
-    "catalog:get-playlist-tracks-page",
-    (_event, playlistId: string, cursor: string | null) => getPlaylistTracksPage(playlistId, cursor),
+  handleTrusted("catalog:get-playlist-tracks-page", (_event, playlistId, cursor) =>
+    getPlaylistTracksPage(requireResourceId(playlistId, "playlist id"), optionalCursor(cursor)),
   );
-  ipcMain.handle("catalog:get-favorite-tracks-page", (_event, cursor: string | null) =>
-    getLikedTracksPage(cursor),
+  handleTrusted("catalog:get-favorite-tracks-page", (_event, cursor) =>
+    getLikedTracksPage(optionalCursor(cursor)),
   );
-  ipcMain.handle("catalog:get-liked-track-ids-page", (_event, cursor: string | null) =>
-    getLikedTrackIdsPage(cursor),
+  handleTrusted("catalog:get-liked-track-ids-page", (_event, cursor) =>
+    getLikedTrackIdsPage(optionalCursor(cursor)),
   );
-  ipcMain.handle("catalog:get-tracks-by-ids", (_event, trackIds: string[]) =>
-    getTracksByIds(trackIds),
+  handleTrusted("catalog:get-tracks-by-ids", (_event, trackIds) =>
+    getTracksByIds(requireResourceIdList(trackIds, "track ids")),
   );
-  ipcMain.handle("catalog:get-user-playlists", () => getUserPlaylists());
-  ipcMain.handle("catalog:get-recent-albums", () => getRecentAlbums());
-  ipcMain.handle("catalog:get-mixes", (_event, relationship: "myMixes" | "discoveryMixes") =>
-    getMixes(relationship),
+  handleTrusted("catalog:get-user-playlists", () => getUserPlaylists());
+  handleTrusted("catalog:get-recent-albums", () => getRecentAlbums());
+  handleTrusted("catalog:get-mixes", (_event, relationship) =>
+    getMixes(requireMixRelationship(relationship)),
   );
-  ipcMain.handle(
-    "catalog:get-mix-tracks-page",
-    (_event, mixType: string, mixId: string, cursor: string | null) =>
-      getMixTracksPage(mixType, mixId, cursor),
+  handleTrusted("catalog:get-mix-tracks-page", (_event, mixType, mixId, cursor) =>
+    getMixTracksPage(
+      requireCollectionName(mixType, "mix type"),
+      requireResourceId(mixId, "mix id"),
+      optionalCursor(cursor),
+    ),
   );
-  ipcMain.handle("catalog:get-album-detail", (_event, albumId: string) =>
-    getAlbumDetail(albumId),
+  handleTrusted("catalog:get-album-detail", (_event, albumId) =>
+    getAlbumDetail(requireResourceId(albumId, "album id")),
   );
-  ipcMain.handle("catalog:get-playlist-detail", (_event, playlistId: string) =>
-    getPlaylistDetail(playlistId),
+  handleTrusted("catalog:get-playlist-detail", (_event, playlistId) =>
+    getPlaylistDetail(requireResourceId(playlistId, "playlist id")),
   );
-  ipcMain.handle("catalog:get-mix-detail", (_event, mixType: string, mixId: string) =>
-    getMixDetail(mixType, mixId),
+  handleTrusted("catalog:get-mix-detail", (_event, mixType, mixId) =>
+    getMixDetail(requireCollectionName(mixType, "mix type"), requireResourceId(mixId, "mix id")),
   );
 }

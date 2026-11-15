@@ -7,7 +7,7 @@
 > **La Fase 3 se completa ANTES que las features especiales (4-8):** el objetivo es
 > un reproductor de suscripción completo antes de añadir nada más.
 
-Última actualización: 2026-10-22 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
+Última actualización: 2026-11-14 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
 
 ## Completadas
 
@@ -51,6 +51,26 @@ cualquier reproductor tradicional:
    configuración, reordenamiento de componentes, responsive/adaptable.
 8. **Búsqueda en biblioteca personal** — buscar dentro de la colección del usuario (además
    del search global de TIDAL ya existente en `SearchView`).
+
+## Phase R — Motor de reproducción con el reproductor web de TIDAL 🔄 (siguiente sesión; parte del criterio de la Fase C)
+
+> Origen (2026-11-14): el SDK `@tidal-music/player` recibe manifiestos FULL con la sesión web,
+> pero el CDN de audio responde 403 (Error 54113) a todo origen que no sea `tidal.com`. tidal-hifi
+> resuelve la reproducción cargando `tidal.com` dentro de Electron y controlándolo desde fuera.
+> Spike OK: una canción por id suena completa (16-bit 44.1kHz) en una ventana `tidal.com` que
+> comparte la partición persistente del login.
+
+- Ventana oculta "motor" con `tidal.com` (partición `persist:tidal-web`) + controlador en main
+  (`tidalWebPlayer.ts`): `playTrack(id)`, pause/resume, seek, volumen; lectura periódica del estado
+  (track, posición, duración, estado) enviada al renderer por IPC.
+- Waves conserva su propia cola (smart shuffle, conteos): al terminar una canción ordena la siguiente.
+- `playerStore`/`playbackService` pasan a usar el motor; el SDK queda (o no) como respaldo de previews.
+- Riesgo: depende de internals de la web de TIDAL (selectores `data-test`, acciones Redux), que cambian.
+
+**Preguntas abiertas.**
+- Cambiar la regla de `AGENTS.md` "el SDK es la única vía de reproducción" a favor del motor web (requiere tu decisión).
+- Control: DOM (navegar + clic, como el spike) o store Redux de la web (`playbackControls/*`, como tidal-hifi). Recomendado: Redux para controles y DOM solo para iniciar una canción.
+- ¿Mantener el SDK como respaldo de previews o eliminarlo?
 
 ## Phase 4 — Smart Shuffle + Local Stats ⏳ (4-5 días)
 
@@ -136,6 +156,8 @@ cualquier reproductor tradicional:
 
 ## Fase C — Consolidación y plug-and-play 🔄
 
+> **Sesión 3 (cerrada 2026-11-14):** seek/polling, CDM automático desde el CRX, hardening de main, credenciales en el primer arranque, login FULL en ventana propia (client web nuevo, `--no-zygote`). El audio FULL con el SDK queda bloqueado por el CDN (403, Error 54113); spike del motor web de TIDAL OK. Archivada en `specs/history/2026-11-14-fase-c-hardening-y-login-full.md`. **Siguiente:** Phase R (motor de reproducción con el reproductor web de TIDAL), que desbloquea el criterio "reproduce FULL".
+>
 > **Sesión 2 (cerrada 2026-10-22):** reproducción FULL arreglada (CDM instalado desde el CRX oficial), bugs del renderer, salto de temas no disponibles. Archivada en `specs/history/2026-10-22-fase-c-reproduccion-y-renderer.md`. **Siguiente (sesión 3):** hardening de main y plug-and-play (incluye automatizar el CDM).
 >
 > **Sesión 1 (cerrada 2026-10-22):** base verde + calidad (Node 22, Most Listened fuera de Home, commit de Home, ESLint, Vitest, `verify`, docs). Archivada en `specs/history/2026-10-22-fase-c-base-verde-calidad.md`. 
@@ -151,12 +173,12 @@ cualquier reproductor tradicional:
 - [x] Vitest + ESLint + script `verify` (typecheck + lint + test + build); primeros tests en `lib/`, `queueStore` y parsers de `catalog.ts` (35 tests; parsers extraídos a `electron/main/tidalParsers.ts`).
 - [x] **Reproducción (diagnosticado 2026-10-22: FULL falla con `S6001` porque `userData/WidevineCdm/` está vacío aunque la app descargó el CDM 4.10.3112.0; preview OK):** arreglar la instalación del CDM; diagnosticar con `npm run dev` y logs si hay fallas reales (CDM de Widevine, sesión FULL, preview de 30 s, cortes); arreglar los bugs de reproducción conocidos (Play colgado si falla el enrichment, `removeAt` sin reprogramar el siguiente, polling/seek, unmute fijo a 80).
 - [x] Bugs del renderer (enrichment colgado, Enter en MediaCard, `removeAt`, reset de stores al logout, unmute); queda el polling/seek de `playerStore`.
-- [ ] Hardening de main: validar/encodear IDs en URLs, chequeo de `sender`, CSP, timeouts, servidor OAuth con timeout y manejo de error, permisos 0o600.
-- [ ] Credenciales TIDAL pedidas en el primer arranque (guardadas con `safeStorage`); `.env` solo override de desarrollo.
-- [ ] Widevine en Linux: CDM vendorizado en el repo (privado) y copiado a `userData/WidevineCdm/` si falta.
-- [ ] Login de reproducción FULL tipo Device Authorization (spike) en lugar de pegar el `code`.
+- [x] Hardening de main: IDs validados (`validation.ts`), chequeo de `sender` (`handleTrusted`), CSP en build, timeouts de 15 s, servidor OAuth con timeout/error, permisos 0o600 (sesión 3).
+- [x] Credenciales TIDAL pedidas en el primer arranque (guardadas con `safeStorage`); `.env` solo override de desarrollo (sesión 3).
+- [x] Widevine en Linux: instalar automáticamente el CRX oficial cacheado por el Component Updater en `userData/WidevineCdm/` si falta (lector ZIP propio sobre `node:zlib`, sin dependencias nuevas; sin CDM vendorizado).
+- [x] Login FULL sin pegar el `code`: el spike de Device Authorization falló (2026-10-23: `Client is not a Limited Input Device client`, HTTP 400) y se implementó el plan B, una ventana de login que captura la redirección automáticamente.
 - [ ] Validar clon limpio → `npm install` → `npm run dev` → `package:*` en Bazzite y Windows 11.
-- [ ] Sincronizar docs: IPC, rutas, árbol y variables realmente leídas ya hechos en la sesión 1; falta `.env.example` (quitar variables que nadie lee o marcarlas como reservadas).
+- [x] Sincronizar docs (`.env.example` depurado en la sesión 3): IPC, rutas, árbol y variables realmente leídas ya hechos en la sesión 1; falta `.env.example` (quitar variables que nadie lee o marcarlas como reservadas).
 
 **Criterio de aceptacion.** `npm run verify` verde en Linux y Windows; un clon limpio abre,
 inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca sin `.env` del repo.
@@ -164,8 +186,10 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 ## Preguntas abiertas (no se asumen)
 
 - ~~**Fase C / CDM**~~ (resuelta, ver Decisiones): si el CDM descargado por la app (fuente oficial de Google) se instala bien, ¿se adelanta el vendorizado/instalación automática? Recomendado: no en la sesión 2.
-- **Fase C:** versión/origen exacto del CDM a vendorizar (¿Git LFS o commit directo?) y si Windows también lo necesita.
-- **Fase C:** ¿el Device Authorization Grant funciona con el client first-party `CzET4vdadNUFQ5JU`? (spike).
+
+- **Phase R:** ¿se cambia la regla de `AGENTS.md` "el SDK es la única vía de reproducción" a favor del motor web de TIDAL? Recomendado: sí, tras el spike OK.
+- **Phase R:** control del motor por DOM, store Redux de la web o mixto. Recomendado: Redux para controles, DOM solo para iniciar una canción.
+- **Phase R:** ¿el SDK se mantiene como respaldo de previews o se elimina?
 
 ## Decisiones tomadas
 
@@ -173,7 +197,13 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 - **Most Listened (2026-10-18):** se pospone a la Fase 4; no hay endpoint público en TIDAL.
 - **Calidad (2026-10-18):** Vitest + ESLint + `verify`.
 - **Credenciales (2026-10-18):** se piden en el primer arranque, no se empaquetan.
-- **Widevine (2026-10-18):** CDM incluido en el repo privado (binario propietario; el repo no debe hacerse público).
+- **Widevine (2026-10-18, revisada 2026-10-23):** ya no se vendoriza el CDM; se instala desde el CRX oficial cacheado. El repo debe seguir privado.
+- **`--no-zygote` (2026-11-14):** flag de Linux para no depender de un zygote que puede morir (ventana de login en blanco).
+- **Sin esquivar controles de TIDAL (2026-11-14):** no se falsea `Origin`/`Referer` ni la huella de la ventana; el audio completo se obtiene con el propio reproductor web de TIDAL (Phase R).
+- **Primer arranque sin red (2026-10-23):** se acepta quedar sin DRM hasta el siguiente arranque con red (la app no funciona offline).
+- **Device Authorization (2026-10-23):** no funciona con el client web; se usa una ventana de login embebida.
+- **Client web (2026-11-14):** TIDAL pasó el reproductor web a `tidal.com` con client `49YxDN9a2aFV6RTG` y redirect `https://tidal.com/login/auth`; el client anterior (`CzET4vdadNUFQ5JU`, `listen.tidal.com`) da "Algo salió mal". Si vuelve a fallar, copiar la URL real de `login.tidal.com/authorize` desde DevTools del navegador.
+- **Dependencias (2026-10-23):** cero dependencias npm nuevas; solo built-ins de Node/Electron.
 - **Feed de lanzamientos (2026-10-18):** se mantienen N llamadas por artista.
 - **Documentación (2026-10-18):** estática en `AGENTS.md`; `CLAUDE.md` la importa; sesiones en `specs/`.
 - **Limpieza de OpenCode (2026-10-22):** se elimina `.opencode/` y el prompt de cierre antiguo; el historial vive en `specs/history/`.

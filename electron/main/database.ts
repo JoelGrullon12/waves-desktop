@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
@@ -14,6 +15,11 @@ export function initializeDatabase(): void {
     path.join(app.getPath("userData"), "waves-desktop.db");
 
   databaseConnection = new DatabaseSync(databasePath);
+  try {
+    fs.chmodSync(databasePath, 0o600);
+  } catch {
+    // Not a regular file (e.g. ":memory:") or a platform without POSIX modes.
+  }
   databaseConnection.exec(`
     CREATE TABLE IF NOT EXISTS track_plays (
       track_id        TEXT PRIMARY KEY,

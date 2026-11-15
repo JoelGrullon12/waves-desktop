@@ -11,14 +11,15 @@ interface SessionStore extends AuthState {
   isLoading: boolean;
   loggingIn: boolean;
   loginError: string | null;
+  credentialsConfigured: boolean;
   isWebSessionConnected: boolean;
   webLoginPending: boolean;
   webLoginError: string | null;
   init: () => Promise<void>;
+  saveCredentials: (clientId: string, clientSecret: string) => Promise<void>;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   webLogin: () => Promise<void>;
-  completeWebLogin: (pasted: string) => Promise<void>;
   webLogout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
   getSessionCredentials: () => Promise<SessionCredentials | null>;
@@ -31,23 +32,39 @@ export const useSessionStore = create<SessionStore>((set) => ({
   isLoading: true,
   loggingIn: false,
   loginError: null,
+  credentialsConfigured: false,
   isWebSessionConnected: false,
   webLoginPending: false,
   webLoginError: null,
 
   init: async () => {
     try {
-      const [isAuthenticated, webSessionConnected] = await Promise.all([
+      const [credentialsStatus, isAuthenticated, webSessionConnected] = await Promise.all([
+        window.api.getCredentialsStatus(),
         window.api.isAuthenticated(),
         window.api.isWebSessionConnected(),
       ]);
       set({
+        credentialsConfigured: credentialsStatus.configured,
         is_authenticated: isAuthenticated,
         isWebSessionConnected: webSessionConnected,
         isLoading: false,
       });
     } catch {
       set({ is_authenticated: false, isLoading: false });
+    }
+  },
+
+  saveCredentials: async (clientId, clientSecret) => {
+    set({ loginError: null });
+    try {
+      const result = await window.api.saveCredentials(clientId, clientSecret);
+      set({
+        credentialsConfigured: result.success,
+        loginError: result.success ? null : (result.error ?? "Could not save the credentials."),
+      });
+    } catch (error) {
+      set({ loginError: `Could not save the credentials: ${error}` });
     }
   },
 
@@ -78,8 +95,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
     try {
       const result = await window.api.webLogin();
       set({
-        webLoginPending: result.pending,
-        isWebSessionConnected: result.success && !result.pending,
+        webLoginPending: false,
+        isWebSessionConnected: result.success,
         webLoginError: result.success ? null : (result.error ?? "Connection failed."),
       });
     } catch (error) {
@@ -87,20 +104,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
         webLoginPending: false,
         webLoginError: `Full playback connection failed: ${error}`,
       });
-    }
-  },
-
-  completeWebLogin: async (pasted: string) => {
-    set({ webLoginError: null });
-    try {
-      const result = await window.api.completeWebLogin(pasted);
-      set({
-        webLoginPending: result.success ? false : true,
-        isWebSessionConnected: result.success,
-        webLoginError: result.success ? null : (result.error ?? "Connection failed."),
-      });
-    } catch (error) {
-      set({ webLoginError: `Full playback connection failed: ${error}` });
     }
   },
 

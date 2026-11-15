@@ -14,7 +14,7 @@ TIDAL's web player and using it in the official SDK's playback engine.
 Currently working:
 
 - OAuth PKCE login against TIDAL (Dashboard) with encrypted token storage.
-- First-party web session (`listen.tidal.com`) for **FULL playback**.
+- First-party web session (`tidal.com`) for **FULL playback**.
 - Track search plus library, album, and playlist views.
 - **Songs (liked tracks)** screen with cursor-based infinite scroll and full-library
   shuffle/play — partially functional: the context-menu actions and like hearts are still
@@ -31,7 +31,7 @@ your collection), which lands before the special features (smart shuffle, sync, 
 The official TIDAL SDK (`@tidal-music/player`) requests the manifest at
 `/v2/trackManifests/{id}`, and TIDAL decides `FULL` or `PREVIEW` **on the server side**, based on
 who owns the token. The developer Dashboard app token only ever gets previews; a **first-party web
-session** (the same PKCE flow as the web player, client `CzET4vdadNUFQ5JU`) belongs to your
+session** (the same PKCE flow as the web player, client `49YxDN9a2aFV6RTG`) belongs to your
 subscribed account and serves `FULL` assets.
 
 Waves combines both:
@@ -101,9 +101,10 @@ Create `.env` from `.env.example` and fill in the values (never commit `.env`):
 ### Initial flow (first run)
 
 1. **Login (Dashboard)**: press "Login" → your browser opens → you come back authenticated.
-2. **Full playback**: in *Your Library* → *Connect full playback* → sign in to TIDAL in your
-   browser → copy the `code` from `https://listen.tidal.com/login/auth?code=...` → *Complete*.
-   The app stores it encrypted and refreshes the token automatically (~24 h).
+2. **Full playback**: in *Settings* → *Connect full playback* → sign in to TIDAL in the window
+   that opens; it closes by itself once signed in. The app stores the session encrypted and
+   refreshes the token automatically (~24 h). Audio from TIDAL's CDN is still blocked for the
+   app's own player (HTTP 403); full playback through TIDAL's web player is Phase R in `ROADMAP.md`.
 3. **Widevine (Linux only)**: the Castlabs Component Updater can fail to auto-install the Widevine
    CDM in some environments. If `navigator.requestMediaKeySystemAccess('com.widevine.alpha')`
    rejects, copy an existing CDM into the app's user-data dir (`~/.config/waves-desktop/WidevineCdm/…`)

@@ -1,7 +1,8 @@
 // Cross-platform wrapper around the electron-vite CLI.
-// The Linux session needs two Chromium flags baked into the Electron argv
-// (--no-sandbox and --in-process-gpu) to survive the Bazzite/SELinux and
-// Wayland GPU-process issues — see the Linux launch runbook in AGENTS.md.
+// The Linux session needs three Chromium flags baked into the Electron argv
+// (--no-sandbox, --in-process-gpu and --no-zygote) to survive the
+// Bazzite/SELinux, Wayland GPU-process and zygote issues — see the Linux
+// launch runbook in AGENTS.md.
 // Those flags are meaningless (and the sandbox flag is a security downgrade)
 // on Windows, so they are only appended when running on Linux.
 import { spawn } from "node:child_process";
@@ -20,7 +21,7 @@ const electronViteCli = join(
   "electron-vite.js",
 );
 
-const linuxOnlyArgs = ["--noSandbox", "--", "--in-process-gpu"];
+const linuxOnlyArgs = ["--noSandbox", "--", "--in-process-gpu", "--no-zygote"];
 const args = [mode, ...(process.platform === "linux" ? linuxOnlyArgs : [])];
 
 const child = spawn(process.execPath, [electronViteCli, ...args], { stdio: "inherit" });

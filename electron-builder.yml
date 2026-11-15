@@ -35,3 +35,4 @@ linux:
   executableArgs:
     - --no-sandbox
     - --in-process-gpu
+    - --no-zygote

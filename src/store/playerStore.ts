@@ -12,7 +12,8 @@ import {
   playbackService,
   type PlaybackServiceClient,
 } from "@/services/playbackService";
-import { useQueueStore, type PlaybackSource } from "@/store/queueStore";
+import { SeekCoordinator, clampSeekPosition } from "@/lib/seekCoordinator";
+import { useQueueStore,type PlaybackSource } from "@/store/queueStore";
 import { useSessionStore } from "@/store/sessionStore";
 import type { Track } from "@/types/track";
 
@@ -104,6 +105,7 @@ function findQueueIndex(referenceId: string | undefined): number {
 // a track actually plays.
 let consecutiveSkips = 0;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+const seekCoordinator = new SeekCoordinator((seconds) => playbackService.seek(seconds));
 
 export const usePlayerStore = create<PlayerStore>((set, get) => {
   const showNotice = (message: string) => {
@@ -204,9 +206,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       }
 
       window.setInterval(() => {
-        if (get().playbackState === "PLAYING") {
-          set({ position: playbackService.getPosition() });
-        }
+        if (get().playbackState !== "PLAYING" || seekCoordinator.isBusy) return;
+        const position = playbackService.getPosition();
+        if (position !== get().position) set({ position });
       }, POSITION_POLL_INTERVAL_MS);
     },
 
@@ -293,8 +295,17 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     },
 
     seek: async (seconds) => {
-      await playbackService.seek(seconds);
-      set({ position: seconds });
+      const state = get();
+      if (!state.currentTrack) return;
+      // Move the slider right away; the poll is paused while a seek settles.
+      const target = clampSeekPosition(seconds, state.duration);
+      set({ position: target });
+      try {
+        await seekCoordinator.request(target);
+      } catch (error) {
+        logToTerminal("error", `seek failed: ${errorMessage(error)}`);
+      }
+      set({ position: playbackService.getPosition() });
     },
 
     setVolume: (level) => {

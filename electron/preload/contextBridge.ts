@@ -3,6 +3,10 @@ import { contextBridge, ipcRenderer } from "electron";
 // Typed in src/types/global.d.ts. This is the only bridge to the main process:
 // every renderer call goes through an ipcRenderer.invoke() over the preload.
 contextBridge.exposeInMainWorld("api", {
+  getCredentialsStatus: () => ipcRenderer.invoke("credentials:get-status"),
+  saveCredentials: (clientId: string, clientSecret: string) =>
+    ipcRenderer.invoke("credentials:save", clientId, clientSecret),
+
   login: () => ipcRenderer.invoke("auth:login"),
   logout: () => ipcRenderer.invoke("auth:logout"),
   isAuthenticated: () => ipcRenderer.invoke("auth:is-authenticated"),
@@ -34,7 +38,6 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("catalog:get-mix-detail", mixType, mixId),
 
   webLogin: () => ipcRenderer.invoke("web-auth:login"),
-  completeWebLogin: (pasted: string) => ipcRenderer.invoke("web-auth:complete-login", pasted),
   webLogout: () => ipcRenderer.invoke("web-auth:logout"),
   isWebSessionConnected: () => ipcRenderer.invoke("web-auth:is-connected"),
   getWebSessionCredentials: () => ipcRenderer.invoke("web-auth:get-session-credentials"),
