@@ -22,7 +22,17 @@ const electronViteCli = join(
 );
 
 const linuxOnlyArgs = ["--noSandbox", "--", "--in-process-gpu", "--no-zygote"];
-const args = [mode, ...(process.platform === "linux" ? linuxOnlyArgs : [])];
+// Anything after the mode is handed to Electron as-is, e.g.
+// `--remote-debugging-port=9222` for scripts/driveApp.mjs.
+const extraElectronArgs = process.argv.slice(3);
+const passthroughSeparator =
+  process.platform !== "linux" && extraElectronArgs.length > 0 ? ["--"] : [];
+const args = [
+  mode,
+  ...(process.platform === "linux" ? linuxOnlyArgs : []),
+  ...passthroughSeparator,
+  ...extraElectronArgs,
+];
 
 const child = spawn(process.execPath, [electronViteCli, ...args], { stdio: "inherit" });
 child.on("close", (code) => process.exit(code ?? 0));

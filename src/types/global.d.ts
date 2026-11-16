@@ -1,3 +1,4 @@
+import type { EnginePlayResult, EngineSnapshot } from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
 import type {
   AlbumDetail,
@@ -48,6 +49,15 @@ declare global {
       getAlbumDetail: (albumId: string) => Promise<AlbumDetail>;
       getPlaylistDetail: (playlistId: string) => Promise<PlaylistDetail>;
       getMixDetail: (mixType: string, mixId: string) => Promise<MixSummary>;
+      // Playback engine (TIDAL's web player in a hidden window).
+      playerPlay: (trackId: string) => Promise<EnginePlayResult>;
+      playerSetNext: (trackId: string | null) => Promise<boolean>;
+      playerPause: () => Promise<boolean>;
+      playerResume: () => Promise<boolean>;
+      playerSeek: (seconds: number) => Promise<boolean>;
+      playerSetVolume: (level: number) => Promise<boolean>;
+      playerStop: () => Promise<boolean>;
+      onPlayerState: (listener: (snapshot: EngineSnapshot) => void) => () => void;
       webLogin: () => Promise<{ success: boolean; error?: string }>;
       webLogout: () => Promise<{ success: boolean }>;
       isWebSessionConnected: () => Promise<boolean>;

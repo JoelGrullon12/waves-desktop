@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 // Typed in src/types/global.d.ts. This is the only bridge to the main process:
 // every renderer call goes through an ipcRenderer.invoke() over the preload.
@@ -36,6 +36,20 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("catalog:get-playlist-detail", playlistId),
   getMixDetail: (mixType: string, mixId: string) =>
     ipcRenderer.invoke("catalog:get-mix-detail", mixType, mixId),
+
+  playerPlay: (trackId: string) => ipcRenderer.invoke("player:play", trackId),
+  playerSetNext: (trackId: string | null) => ipcRenderer.invoke("player:set-next", trackId),
+  playerPause: () => ipcRenderer.invoke("player:pause"),
+  playerResume: () => ipcRenderer.invoke("player:resume"),
+  playerSeek: (seconds: number) => ipcRenderer.invoke("player:seek", seconds),
+  playerSetVolume: (level: number) => ipcRenderer.invoke("player:set-volume", level),
+  playerStop: () => ipcRenderer.invoke("player:stop"),
+  // Returns the function that stops listening.
+  onPlayerState: (listener: (snapshot: unknown) => void) => {
+    const forward = (_event: IpcRendererEvent, snapshot: unknown) => listener(snapshot);
+    ipcRenderer.on("player:state", forward);
+    return () => ipcRenderer.removeListener("player:state", forward);
+  },
 
   webLogin: () => ipcRenderer.invoke("web-auth:login"),
   webLogout: () => ipcRenderer.invoke("web-auth:logout"),

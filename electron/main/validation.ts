@@ -21,6 +21,22 @@ export function requireResourceId(value: unknown, label: string): string {
   return value;
 }
 
+export function optionalResourceId(value: unknown, label: string): string | null {
+  return value == null ? null : requireResourceId(value, label);
+}
+
+export function requireNumberInRange(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) {
+    throw invalidArgument(label);
+  }
+  return value;
+}
+
 // The mix type is the JSON:API resource type TIDAL returns ("playlists", ...)
 // and is used as a path segment.
 export function requireCollectionName(value: unknown, label: string): string {

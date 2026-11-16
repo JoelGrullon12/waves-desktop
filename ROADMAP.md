@@ -7,7 +7,7 @@
 > **La Fase 3 se completa ANTES que las features especiales (4-8):** el objetivo es
 > un reproductor de suscripción completo antes de añadir nada más.
 
-Última actualización: 2026-11-14 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
+Última actualización: 2026-11-15 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
 
 ## Completadas
 
@@ -43,16 +43,19 @@ cualquier reproductor tradicional:
 4. **Perfiles y vistas** — perfiles de artistas (`ArtistView`, hoy no existe); álbumes y
    playlists comparten la vista genérica `MediaDetailView` ✓.
 5. **Reproductor tradicional** — shuffle y **cola dinámica**, **repetición** de canciones
-   (estado persistente; hoy el shuffle es one-shot y no hay repeat).
+   (estado persistente; hoy el shuffle es one-shot y no hay repeat). Nota del desarrollador: la repeticion tendra 3 modos, el primer modo sera repetir la cancion actual 1 vez (a diferencia de la repeticion infinita), el segundo modo sera repetir la cancion actual infinitamente y el tercer modo sera repetir la playlist completa. Es una de las funciones extra que quiero en el reproductor custom
 6. **Click derecho + enlaces** — `TrackContextMenu` funcional conectado a `collection.write`
    (Play next, Add to queue, Add to playlist, Remove from library, Go to album/artist) +
-   enlaces clicables en nombres y títulos. Incluye **like/unlike** de la biblioteca.
+   enlaces clicables en nombres y títulos. Incluye **like/unlike** de la biblioteca. Nota del desarrollador: la funcion de agregar a playlist debe permitir agregar a varias playlists al mismo tiempo, al mostrar la pantalla de "agregar a playlists" debe ser una lista con checkbox y abajo un boton de "Agregar"
 7. **Ajustes visuales** — mejor manejo del espacio, **modo oscuro**, pantalla de
    configuración, reordenamiento de componentes, responsive/adaptable.
 8. **Búsqueda en biblioteca personal** — buscar dentro de la colección del usuario (además
-   del search global de TIDAL ya existente en `SearchView`).
+   del search global de TIDAL ya existente en `SearchView`). Nota del desarrollador: para esto, que la pantalla de busqueda tenga una especie de switch para cambiar entre busqueda en Tidal o busqueda dentro de coleccion, que la busqueda en Tidal sea el modo por defecto. Ademas, al buscar una cancion en la coleccion, que traiga informacion de la cancion, como la cantidad de veces que se ha reproducido y en cuantas y cuales playlists esta agregada, si es pesado hacerlo a traves del api, dejalo pendiente hasta hacer la parte de metadata local para usar eso en su lugar
+   
 
-## Phase R — Motor de reproducción con el reproductor web de TIDAL 🔄 (siguiente sesión; parte del criterio de la Fase C)
+## Phase R — Motor de reproducción con el reproductor web de TIDAL ✅ (2026-11-15)
+
+> **Hecha:** el reproductor web de TIDAL corre en una ventana oculta y Waves lo controla despachando las acciones Redux de la propia página (detalle en `AGENTS.md`, "Playback engine"). Audio FULL sin cortes entre canciones; la cola sigue siendo de Waves.
 
 > Origen (2026-11-14): el SDK `@tidal-music/player` recibe manifiestos FULL con la sesión web,
 > pero el CDN de audio responde 403 (Error 54113) a todo origen que no sea `tidal.com`. tidal-hifi
@@ -67,11 +70,6 @@ cualquier reproductor tradicional:
 - `playerStore`/`playbackService` pasan a usar el motor; el SDK queda (o no) como respaldo de previews.
 - Riesgo: depende de internals de la web de TIDAL (selectores `data-test`, acciones Redux), que cambian.
 
-**Preguntas abiertas.**
-- Cambiar la regla de `AGENTS.md` "el SDK es la única vía de reproducción" a favor del motor web (requiere tu decisión).
-- Control: DOM (navegar + clic, como el spike) o store Redux de la web (`playbackControls/*`, como tidal-hifi). Recomendado: Redux para controles y DOM solo para iniciar una canción.
-- ¿Mantener el SDK como respaldo de previews o eliminarlo?
-
 ## Phase 4 — Smart Shuffle + Local Stats ⏳ (4-5 días)
 
 *Antes: Phase 3 (renumerada).*
@@ -81,7 +79,7 @@ cualquier reproductor tradicional:
   del track.
 - `smartShuffle.ts` — algoritmo:
   1. Consultar play counts de todos los ids del contexto actual.
-  2. Tracks sin registro → play count 0 (máxima prioridad).
+  2. Tracks sin registro → play count 0 (máxima prioridad). Nota del desarrollador: para evitar que una cancion nueva se tenga que reproducir 300 veces para estar a la par con las demas (por ejemplo), cuando se agregue una cancion nueva a la lista, se le colocara por defecto la mediana de conteos de todas las canciones, asi una cancion nueva estara a un nivel parecido de las demas canciones. Si tenias una mejor idea para esto, proponlo cuando estes evaluando todo
   3. Agrupar en buckets por play count.
   4. Shuffle aleatorio dentro de cada bucket (evita el feel robótico y balancea plays).
   5. Concatenar buckets de menor a mayor play count.
@@ -98,6 +96,8 @@ cualquier reproductor tradicional:
   también a Turso. Sin resolución de conflictos — last write wins.
 - Requiere `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN` en `.env`.
 
+Nota del desarrollador: cree una cuenta en Turso y cree una BD llamada waves-db, anote la url que me daba en el env, para el auth token no se bien a que se referia, vi una opcion en Settings > API Tokens y cree uno llamado waves-token, lo copie y lo pegue en el .env, si no era ese dime cuando estes revisando y planeando y lo hago. Pero si era eso, creo que con eso ya tienes acceso
+
 ## Phase 6 — Mobile Remote Control ⏳ (3-4 días)
 
 *Antes: Phase 5 (renumerada).*
@@ -110,7 +110,7 @@ cualquier reproductor tradicional:
 - Eventos: `play`, `pause`, `next`, `previous`, `set_volume`, `state_sync` (push de track,
   artwork URL, progreso, volumen en cada cambio de estado).
 
-## Phase 7 — Global Playlist & Favorites ⏳ (3-4 días)
+## Phase 7 — Favorites ⏳ (3-4 días)
 
 *Antes: Phase 6 (renumerada).*
 
@@ -119,6 +119,8 @@ cualquier reproductor tradicional:
 - Favorites playlist: top N por `play_count` con `last_played_at` en los últimos 30 días
   (ventana configurable en `user_preferences`). Computada desde SQLite local — sin API.
 - Ambas son virtuales — nunca se escriben de vuelta a TIDAL.
+
+Nota del desarrollador: se elimino la parte de playlist global ya que seria demasiado pesado a nivel de api y el resultado no tendria tanto valor, solo se hara lo de favorito por X cantidad de tiempo 
 
 ## Phase 8 — Cache local de metadata ⏳ (opcional, EXTRA)
 
@@ -187,11 +189,11 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 
 - ~~**Fase C / CDM**~~ (resuelta, ver Decisiones): si el CDM descargado por la app (fuente oficial de Google) se instala bien, ¿se adelanta el vendorizado/instalación automática? Recomendado: no en la sesión 2.
 
-- **Phase R:** ¿se cambia la regla de `AGENTS.md` "el SDK es la única vía de reproducción" a favor del motor web de TIDAL? Recomendado: sí, tras el spike OK.
-- **Phase R:** control del motor por DOM, store Redux de la web o mixto. Recomendado: Redux para controles, DOM solo para iniciar una canción.
-- **Phase R:** ¿el SDK se mantiene como respaldo de previews o se elimina?
+(Ninguna: las de Phase R se resolvieron el 2026-11-15, ver Decisiones.)
 
 ## Decisiones tomadas
+
+- **Motor de reproducción (2026-11-15):** el reproductor web de TIDAL en ventana oculta sustituye al SDK; control por acciones Redux de la página (iniciar, encolar la siguiente, pausa/seek/volumen) y estado leído por sondeo. La regla "el SDK es la única vía" de `AGENTS.md` queda reemplazada.
 
 - **Prioridad (2026-10-18):** consolidar y lograr plug-and-play antes de nuevas features de Fase 3.
 - **Most Listened (2026-10-18):** se pospone a la Fase 4; no hay endpoint público en TIDAL.

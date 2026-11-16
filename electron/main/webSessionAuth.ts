@@ -54,6 +54,15 @@ interface WebLoginResult {
   error?: string;
 }
 
+// The playback engine (tidalWebPlayer.ts) lives on the same partition: it is
+// told when the session appears or is about to be wiped.
+type WebSessionListener = (isConnected: boolean) => void;
+let webSessionListener: WebSessionListener | null = null;
+
+export function setWebSessionListener(listener: WebSessionListener): void {
+  webSessionListener = listener;
+}
+
 function webSessionFilePath(): string {
   return path.join(app.getPath("userData"), WEB_SESSION_FILE);
 }
@@ -227,6 +236,8 @@ export async function getWebSessionCredentials(): Promise<{
 }
 
 export async function logoutWebSession(): Promise<void> {
+  // The engine window must be gone before its storage is cleared.
+  webSessionListener?.(false);
   const filePath = webSessionFilePath();
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -382,6 +393,7 @@ async function loginWithSignInWindow(): Promise<WebLoginResult> {
     buildAuthorizationUrl("r_usr w_usr", codeChallenge),
   );
   saveWebSession(await exchangeWebCode(code, codeVerifier));
+  webSessionListener?.(true);
   return { success: true };
 }
 

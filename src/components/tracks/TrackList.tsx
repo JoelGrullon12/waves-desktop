@@ -68,6 +68,7 @@ function TrackRow({
     <TrackContextMenu track={track} allowRemoveFromLibrary={allowRemoveFromLibrary}>
       <div
         className={`group grid ${gridColumns} cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted`}
+        data-track-id={track.id}
         onClick={playFromRow}
       >
         <div className="flex items-center justify-center text-xs tabular-nums text-muted-foreground">

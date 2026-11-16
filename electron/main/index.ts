@@ -5,7 +5,8 @@ import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
-import { registerWebSessionHandlers } from "./webSessionAuth";
+import { PLAYER_STATE_CHANNEL, registerPlayerHandlers, tidalWebPlayer } from "./tidalWebPlayer";
+import { registerWebSessionHandlers, setWebSessionListener } from "./webSessionAuth";
 import { installWidevineFromCache, type WidevineInstallResult } from "./widevineInstaller";
 
 // Electron is launched with `--no-sandbox` (see package.json scripts and
@@ -53,6 +54,16 @@ async function createWindow(): Promise<void> {
     if (!isAppPage) event.preventDefault();
   });
 
+  const stopForwardingPlayerState = tidalWebPlayer.onSnapshot((snapshot) => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send(PLAYER_STATE_CHANNEL, snapshot);
+  });
+  mainWindow.on("closed", () => {
+    stopForwardingPlayerState();
+    // The engine window is hidden: without this the app would keep running
+    // (and playing) with no visible window.
+    tidalWebPlayer.shutDown();
+  });
+
   if (developmentRenderUrl) {
     await mainWindow.loadURL(developmentRenderUrl);
   } else {
@@ -84,7 +95,13 @@ app.whenReady().then(async () => {
   registerAuthHandlers();
   registerCatalogHandlers();
   registerWebSessionHandlers();
+  registerPlayerHandlers();
+  setWebSessionListener((isConnected) => {
+    if (isConnected) tidalWebPlayer.warmUp();
+    else tidalWebPlayer.shutDown();
+  });
   await createWindow();
+  tidalWebPlayer.warmUp();
 });
 
 app.on("window-all-closed", () => {

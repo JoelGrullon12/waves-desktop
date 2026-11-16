@@ -70,7 +70,7 @@ truly plug-and-play on both Windows and Linux.
 | Tailwind CSS | 4 | Utility-first styling |
 | shadcn/ui (`shadcn` + base-ui) | latest | Accessible component primitives |
 | React Router | v8 (`react-router`) | Client-side routing |
-| TIDAL Web SDK | `@tidal-music/player ^0.20.1` | Audio playback — the only permitted playback path |
+| TIDAL web player | `https://tidal.com/` in a hidden window | Audio playback — the only playback path (see "Playback engine") |
 
 ### Desktop Shell (Electron)
 
@@ -147,6 +147,9 @@ Current capabilities:
   `getPlaylistDetail`, `getMixDetail`
 - **Liked tracks:** `getFavoriteTracksPage(cursor)`, `getLikedTrackIdsPage(cursor)`,
   `getTracksByIds(ids)`
+- **Playback engine:** `playerPlay(trackId)`, `playerSetNext(trackId | null)`, `playerPause`,
+  `playerResume`, `playerSeek(seconds)`, `playerSetVolume(0-100)`, `playerStop`, and
+  `onPlayerState(listener)` (snapshots pushed by main every 500 ms; returns an unsubscribe function)
 - **First-party web session (FULL playback):** `webLogin` (opens a sign-in window that captures
   the redirect code by itself), `webLogout`, `isWebSessionConnected`,
   `getWebSessionCredentials`, `getWebPlaybackStream`
@@ -199,7 +202,7 @@ is Phase 5 of the roadmap; the local schema is already in place.)
 |---|---|
 | `openapi.tidal.com/v2` | TIDAL v2 API — catalog, search, playlists, mixes (JSON:API) |
 | `auth.tidal.com/v1/oauth2` | OAuth 2.0 Authorization Code + PKCE |
-| `@tidal-music/player` | TIDAL Web SDK — audio playback with Widevine DRM |
+| `https://tidal.com/` | TIDAL's web player, loaded in a hidden window — audio playback with Widevine DRM |
 | Turso | Cloud SQLite for play count sync (Phase 5) |
 
 ## Environment Variables
@@ -324,6 +327,7 @@ waves-desktop/
 │
 ├── scripts/
 │   ├── ensureElectron.mjs          # postinstall: downloads fork binary if dist/ missing
+│   ├── driveApp.mjs                # Dev helper: drives a running app over the DevTools Protocol
 │   └── runElectron.mjs             # dev/start: spawns electron-vite, Linux-only Chromium flags
 │
 ├── resources/
@@ -348,15 +352,15 @@ waves-desktop/
     │   ├── useTrackCollection.ts   # Infinite query + background prefetch + full-collection playback
     │   └── useTrackEnrichment.ts   # Batches getTracksByIds into songsStore
     │
-    ├── lib/                        # Pure helpers (format, artwork URLs, media products, logger, random, mediaPlayback);
+    ├── lib/                        # Pure helpers (format, artwork URLs, engine events, playback errors, logger, random, mediaPlayback);
     │                               #   `*.test.ts` files live next to the code they cover
     │
     ├── services/
     │   ├── tidalCatalogService.ts  # Calls window.api.* (was invoke())
-    │   └── playbackService.ts      # TIDAL Web SDK — the only playback path
+    │   └── playbackService.ts      # Commands + events of the playback engine (IPC `player:*`)
     │
     ├── store/
-    │   ├── playerStore.ts          # Volume 0-100 (converted to 0-1 for the SDK on set)
+    │   ├── playerStore.ts          # Player state; reacts to the engine's events (volume 0-100)
     │   ├── queueStore.ts
     │   ├── sessionStore.ts
     │   ├── likedStore.ts           # Set of liked track ids (read-only for now)
@@ -488,20 +492,53 @@ The v1 API (`api.tidal.com/v1`) rejects all dashboard-created clients with 403/1
 (`Required scopes: r_usr`) because it validates against legacy scope names. There is no
 dashboard setting that grants legacy scopes. Use v2 (`openapi.tidal.com/v2`) exclusively.
 
-### TIDAL Web SDK with custom credentials provider
-`@tidal-music/player` is the only permitted playback path. The custom `CredentialsProvider`
-calls `window.api.getSessionCredentials()` — the renderer never stores tokens.
-`@tidal-music/auth` is NOT used: it would duplicate auth state that the main process owns.
-`setEventSender({ sendEvent() {} })` is REQUIRED — the SDK's `hasEventSender()` guard blocks
-`load`/`setNext` otherwise, and the SDK only invokes `sendEvent()`.
+### Playback engine: TIDAL's web player in a hidden window (2026-11-15)
+The only playback path is TIDAL's own web player (`https://tidal.com/`) loaded as-is in a hidden
+`BrowserWindow` (`electron/main/tidalWebPlayer.ts`) on the `persist:tidal-web` partition, which it
+shares with the sign-in window so it is already signed in.
 
-### Playback session token priority
-Two credential sources exist; `buildCredentialsProvider().getCredentials()` branches: the
-**first-party web session** (web player at `tidal.com`, client `49YxDN9a2aFV6RTG`; the older `listen.tidal.com` client `CzET4vdadNUFQ5JU` is rejected by TIDAL since 2026-11) when connected, the
-**Dashboard app token** otherwise. Dashboard tokens only ever produce PREVIEW manifests
-(`assetPresentation` is decided server-side by token tier); the first-party web session
-produces `FULL`. The SDK requests credentials on every `load`, so connecting the session is
-enough — no re-initialization required.
+**Why not the SDK:** with the first-party web session `@tidal-music/player` gets FULL manifests,
+but TIDAL's audio CDN answers HTTP 403 (error 54113) to any origin other than `tidal.com`, and the
+app does not fake `Origin`/`Referer`. tidal-hifi works the same way (it wraps the web player).
+
+**How it is driven** (everything page-specific lives in `electron/main/tidalWebPlayerScript.ts`):
+the page is a React + Redux app; the injected script finds its Redux store through the React root
+and dispatches the page's own actions. Verified 2026-11-15:
+- `content/FETCH_AND_PLAY_MEDIA_ITEM` `{ itemId, itemType: "track", sourceContext }` replaces the
+  page's queue with one track and plays it (~0.4-1 s).
+- `content/LOAD_SINGLE_MEDIA_ITEM` + `playQueue/ADD_NEXT` (after `playQueue/CLEAR_UPCOMING`) queue
+  exactly one next track; the page then changes track by itself with no gap.
+  (`content/FETCH_AND_QUEUE_MEDIA_ITEM` also works but leaves a stray extra item — not used.)
+- `playbackControls/PLAY | PAUSE | SEEK (seconds) | SET_VOLUME ({ volume: 0-100 })`.
+- `settings/SET_AUTOPLAY false` is forced: with autoplay on, the page appends a 100-track radio
+  when its queue ends.
+- State is read by polling `playbackControls` (state, `mediaProduct`, `playbackContext`) every
+  500 ms. `latestCurrentTime` only syncs on events; the real position is that value plus the time
+  since `latestCurrentTimeSyncTimestamp`. `mediaProduct.referenceId` is unique per playback.
+- Right after it loads, the page restores the last track of its previous run; asked for that same
+  track it loads it but stays paused, so the script dispatches `PLAY` explicitly.
+- An unavailable track never reaches `content.mediaItems`; the page shows a notification instead.
+
+**Division of work:** Waves owns the queue (`queueStore`). The web player only ever holds the
+current track and the one after it. `src/services/playbackService.ts` sends commands over the
+`player:*` IPC channels and turns the polled snapshots (`player:state` events) into
+transition / state / ended events (`src/lib/engineEvents.ts`, pure and unit-tested) for
+`playerStore`.
+
+**Do not** change the engine window's user agent or fingerprint (same reason as the sign-in
+window), and do not move playback back into the renderer. `WAVES_SHOW_ENGINE=1` shows the window
+for debugging. When playback breaks after a TIDAL web update, re-verify the action names above
+first (they can be listed by grepping the page's scripts for `"playQueue/…"` strings).
+
+`@tidal-music/player` is no longer used by the code.
+
+### Sessions and what each one is for
+Two sign-ins exist. The **Dashboard app token** (`auth.ts`, OAuth PKCE with the user's own client
+id) is used for the v2 API (catalog, collection, playlists). The **first-party web session**
+(`webSessionAuth.ts`, web client `49YxDN9a2aFV6RTG`; the older `listen.tidal.com` client
+`CzET4vdadNUFQ5JU` is rejected by TIDAL since 2026-11) signs the `persist:tidal-web` partition in,
+which is what lets the engine play FULL tracks. Without it nothing plays and the player shows
+"Full playback is not connected".
 
 ### Play count increment strategy (Phase 4)
 A play is counted only when a track plays past 30 seconds — matches industry convention and
@@ -577,8 +614,8 @@ type Result<T> = { success: true; data: T } | { success: false; error: string }
   30-second previews. Full tracks require Authorization Code OAuth with the user's own
   account; the Dashboard app token only authorizes PREVIEW manifests server-side. Full
   playback comes from the first-party web session (`webSessionAuth.ts`).
-- **Use the TIDAL Web SDK for playback.** Streaming directly from TIDAL's CDN violates terms.
-  The SDK handles DRM, stream URLs, and license acquisition.
+- **Playback goes through TIDAL's web player** (hidden window, see "Playback engine"). Never
+  fetch audio from TIDAL's CDN directly and never fake the request origin.
 - **Personal use only.** Must not be distributed or made accessible to other users.
 - **Widevine on Linux is L3 (software DRM).** For audio this imposes no quality restriction —
   Max quality (HiRes FLAC 24-bit/192kHz) is available. L3 restrictions apply to video

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  optionalResourceId,
+  requireNumberInRange,
   authorizationCodeFromRedirect,
   isTrustedSenderUrl,
   optionalCursor,
@@ -23,6 +25,29 @@ describe("requireResourceId", () => {
       expect(() => requireResourceId(id, "id")).toThrow(/Invalid id/);
     },
   );
+});
+
+describe("optionalResourceId", () => {
+  it("accepts a missing value and validates a present one", () => {
+    expect(optionalResourceId(null, "track id")).toBeNull();
+    expect(optionalResourceId(undefined, "track id")).toBeNull();
+    expect(optionalResourceId("12345", "track id")).toBe("12345");
+    expect(() => optionalResourceId("../etc", "track id")).toThrow("Invalid track id.");
+  });
+});
+
+describe("requireNumberInRange", () => {
+  it("accepts numbers inside the range, bounds included", () => {
+    expect(requireNumberInRange(0, "volume", 0, 100)).toBe(0);
+    expect(requireNumberInRange(42.5, "volume", 0, 100)).toBe(42.5);
+    expect(requireNumberInRange(100, "volume", 0, 100)).toBe(100);
+  });
+
+  it("rejects anything that is not a finite number in range", () => {
+    for (const value of [-1, 101, Number.NaN, Number.POSITIVE_INFINITY, "50", null, undefined]) {
+      expect(() => requireNumberInRange(value, "volume", 0, 100)).toThrow("Invalid volume.");
+    }
+  });
 });
 
 describe("requireCollectionName", () => {

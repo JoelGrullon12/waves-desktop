@@ -1,23 +1,16 @@
 import { create } from "zustand";
-import type { CredentialsProvider } from "@tidal-music/common";
-import type { PlaybackState } from "@tidal-music/player";
 import { errorMessage, logToTerminal } from "@/lib/logger";
-import { mediaProductFor } from "@/lib/mediaProduct";
-import {
-  canSkipAnother,
-  isPlayInterruption,
-  isSkippableError,
-} from "@/lib/playbackErrors";
+import { canSkipAnother, isPlayInterruption, isSkippableError } from "@/lib/playbackErrors";
 import {
   playbackService,
+  type AudioFormat,
   type PlaybackServiceClient,
+  type PlaybackState,
 } from "@/services/playbackService";
 import { SeekCoordinator, clampSeekPosition } from "@/lib/seekCoordinator";
-import { useQueueStore,type PlaybackSource } from "@/store/queueStore";
-import { useSessionStore } from "@/store/sessionStore";
+import { useQueueStore, type PlaybackSource } from "@/store/queueStore";
 import type { Track } from "@/types/track";
 
-const POSITION_POLL_INTERVAL_MS = 500;
 const DEFAULT_VOLUME = 80;
 const PREVIOUS_RESTART_THRESHOLD_S = 3;
 const NOTICE_DURATION_MS = 4000;
@@ -29,6 +22,8 @@ interface PlayerStore {
   currentTrack: Track | null;
   position: number;
   duration: number;
+  // What is actually being streamed (quality, bit depth...), for the player bar.
+  audioFormat: AudioFormat | null;
   volume: number;
   volumeBeforeMute: number;
   error: string | null;
@@ -48,57 +43,30 @@ interface PlayerStore {
   setQueueOpen: (open: boolean) => void;
 }
 
-function buildCredentialsProvider(): CredentialsProvider {
-  return {
-    bus: () => {},
-    getCredentials: async () => {
-      // When the first-party web session is connected, stream with its token:
-      // TIDAL ties FULL assetPresentation to the subscribed account behind that
-      // session, whereas the dashboard-app token only yields 30s previews.
-      const session = useSessionStore.getState();
-      if (session.isWebSessionConnected) {
-        const webCredentials = await session.getWebSessionCredentials();
-        if (webCredentials) {
-          return {
-            clientId: webCredentials.client_id,
-            token: webCredentials.access_token,
-            userId: webCredentials.user_id ?? undefined,
-            requestedScopes: [],
-          };
-        }
-      }
-      const credentials = await session.getSessionCredentials();
-      if (!credentials) {
-        throw new Error("No session credentials available.");
-      }
-      return {
-        clientId: credentials.client_id,
-        token: credentials.access_token,
-        userId: credentials.user_id ?? undefined,
-        requestedScopes: [],
-      };
-    },
-  };
-}
-
+// Tells the engine which track follows the current one, so it can move on to it
+// without a gap when the current track ends.
 function scheduleNextTrack(): void {
   const queue = useQueueStore.getState();
   const nextIndex = queue.nextIndex();
   const nextTrack = nextIndex != null ? queue.getTrackAt(nextIndex) : null;
-  // An unavailable next track must not surface as an unhandled rejection that
-  // stops the current one; the transition to it will report the failure.
+  // A track that can not be queued is not a problem yet: when the current one
+  // ends, the store starts it explicitly and handles the failure there.
   playbackService
-    .setNext(nextTrack && queue.source ? mediaProductFor(nextTrack, queue.source) : undefined)
+    .setNext(nextTrack ? String(nextTrack.id) : null)
     .catch((error) => logToTerminal("error", `setNext failed: ${errorMessage(error)}`));
 }
 
-function findQueueIndex(referenceId: string | undefined): number {
+// Where in the queue the track that just started is. The same track can be in
+// the queue more than once, so the positions playback is expected at win.
+function findQueueIndex(trackId: string): number | null {
   const queue = useQueueStore.getState();
-  if (referenceId != null) {
-    const index = queue.tracks.findIndex((track) => String(track.id) === referenceId);
-    if (index >= 0) return index;
-  }
-  return queue.currentIndex ?? 0;
+  const isAt = (index: number | null): index is number =>
+    index != null && String(queue.tracks[index]?.id) === trackId;
+  const nextIndex = queue.nextIndex();
+  if (isAt(queue.currentIndex)) return queue.currentIndex;
+  if (isAt(nextIndex)) return nextIndex;
+  const firstMatch = queue.tracks.findIndex((track) => String(track.id) === trackId);
+  return firstMatch >= 0 ? firstMatch : null;
 }
 
 // Tracks skipped in a row because TIDAL refuses to play them; reset as soon as
@@ -131,48 +99,75 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     await get().playTrackAt(nextIndex);
   };
 
+  const startTrack = async (track: Track): Promise<void> => {
+    try {
+      await playbackService.startTrack(String(track.id));
+    } catch (error) {
+      if (isPlayInterruption(error)) return;
+      if (isSkippableError(error)) {
+        await skipUnplayable(track, error);
+        return;
+      }
+      logToTerminal("error", `startTrack failed: ${errorMessage(error)}`);
+      set({ error: errorMessage(error), isPlaying: false });
+    }
+  };
+
   const createStoreClient = (): PlaybackServiceClient => ({
-    onTransition: (active, duration) => {
-      logToTerminal("info", `media-product-transition: ${active.productId}`);
-      const index = findQueueIndex(active.referenceId);
+    onTransition: (trackId, durationSeconds) => {
+      logToTerminal("info", `track started: ${trackId}`);
+      const index = findQueueIndex(trackId);
+      if (index === null) {
+        // The engine is playing something that is not in the queue (it was
+        // cleared meanwhile, or the web player acted on its own): stop it.
+        logToTerminal("error", `stopping track ${trackId}: it is not in the queue`);
+        void playbackService.pause();
+        return;
+      }
       const queue = useQueueStore.getState();
       const track = queue.getTrackAt(index);
       queue.jumpTo(index);
       if (track) {
-        set({ currentTrack: track, duration: duration || track.duration, position: 0 });
+        set({ currentTrack: track, duration: durationSeconds || track.duration, position: 0 });
       }
       scheduleNextTrack();
     },
     onPlaybackStateChange: (playbackState) => {
       logToTerminal("info", `playback-state: ${playbackState}`);
-      if (playbackState === "PLAYING") consecutiveSkips = 0;
-      set({ playbackState, isPlaying: playbackState === "PLAYING", error: null });
-    },
-    onEnded: (reason) => {
-      logToTerminal("info", `ended: ${reason}`);
-      if (reason === "error") {
-        set({ isPlaying: false, error: "Playback ended unexpectedly." });
+      if (playbackState === "PLAYING") {
+        consecutiveSkips = 0;
+        set({ playbackState, isPlaying: true, error: null });
+      } else {
+        set({ playbackState, isPlaying: false });
       }
     },
-    onError: (error) => {
-      logToTerminal(
-        "error",
-        `playback error ${error.errorId} (${error.errorCode}): ${JSON.stringify(error)}`,
-      );
-      // A skippable error while a track is PLAYING comes from preloading the
-      // next one, not from the current track, which must keep playing.
-      if (isSkippableError(error) && get().playbackState !== "PLAYING") {
-        void skipUnplayable(get().currentTrack, error);
-        return;
+    onProgress: (positionSeconds, durationSeconds, audioFormat) => {
+      if (seekCoordinator.isBusy) return;
+      const state = get();
+      const changes: Partial<PlayerStore> = {};
+      if (positionSeconds !== state.position) changes.position = positionSeconds;
+      if (durationSeconds > 0 && durationSeconds !== state.duration) {
+        changes.duration = durationSeconds;
       }
-      set({ error: `Playback error (${error.errorId}, ${error.errorCode}).`, isPlaying: false });
+      if (
+        audioFormat.audioQuality !== state.audioFormat?.audioQuality ||
+        audioFormat.bitDepth !== state.audioFormat?.bitDepth ||
+        audioFormat.sampleRate !== state.audioFormat?.sampleRate
+      ) {
+        changes.audioFormat = audioFormat;
+      }
+      if (Object.keys(changes).length > 0) set(changes);
     },
-    onStreamingPrivilegesRevoked: (otherDevice) => {
-      set({
-        error: `Streaming privileges revoked${otherDevice ? ` by another device (${otherDevice})` : ""}.`,
-        isPlaying: false,
-      });
+    onEnded: () => {
+      logToTerminal("info", "track ended with nothing queued in the engine");
+      const nextIndex = useQueueStore.getState().nextIndex();
+      if (nextIndex != null) {
+        void get().playTrackAt(nextIndex);
+      } else {
+        set({ isPlaying: false });
+      }
     },
+    onNotice: (message) => showNotice(message),
   });
 
   return {
@@ -182,6 +177,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     currentTrack: null,
     position: 0,
     duration: 0,
+    audioFormat: null,
     volume: DEFAULT_VOLUME,
     volumeBeforeMute: DEFAULT_VOLUME,
     error: null,
@@ -190,86 +186,47 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
     init: () => {
       if (get().isInitialized) return;
-      playbackService.initialize(buildCredentialsProvider(), createStoreClient());
-      playbackService.setVolume(get().volume / 100);
+      playbackService.initialize(createStoreClient());
+      playbackService.setVolume(get().volume);
       set({ isInitialized: true });
-
-      // Electron bundles Widevine via the Castlabs fork, so EME is normally
-      // available. If it is missing (e.g. the CDM failed to install), fail
-      // fast with a clear message instead of silently rejecting inside the SDK.
-      if (!playbackService.isDrmSupported()) {
-        const message =
-          "El motor de DRM (Widevine) no está disponible. Verificá que el CDM se haya instalado y reintentá.";
-        logToTerminal("error", message);
-        set({ error: message, isPlaying: false });
-        return;
-      }
-
-      window.setInterval(() => {
-        if (get().playbackState !== "PLAYING" || seekCoordinator.isBusy) return;
-        const position = playbackService.getPosition();
-        if (position !== get().position) set({ position });
-      }, POSITION_POLL_INTERVAL_MS);
     },
 
     playQueue: async (tracks, startIndex, source) => {
       const track = tracks[startIndex];
       if (!track) return;
       useQueueStore.getState().setQueue(tracks, startIndex, source);
-      set({ currentTrack: track, error: null, isQueueOpen: false });
-      const next = tracks[startIndex + 1];
-      try {
-        await playbackService.startTrack(
-          mediaProductFor(track, source),
-          next ? mediaProductFor(next, source) : undefined,
-        );
-      } catch (error) {
-        if (isPlayInterruption(error)) return;
-        if (isSkippableError(error)) {
-          await skipUnplayable(track, error);
-          return;
-        }
-        logToTerminal("error", `startTrack failed: ${errorMessage(error)}`);
-        set({ error: `No se pudo iniciar la reproducción: ${errorMessage(error)}`, isPlaying: false });
-      }
+      // The bar must stop showing the previous track's progress right away.
+      set({
+        currentTrack: track,
+        position: 0,
+        duration: track.duration,
+        error: null,
+        isQueueOpen: false,
+      });
+      await startTrack(track);
     },
 
     playTrackAt: async (index) => {
       const queue = useQueueStore.getState();
       const track = queue.getTrackAt(index);
-      if (!track || !queue.source) return;
+      if (!track) return;
       queue.jumpTo(index);
-      set({ currentTrack: track, error: null });
-      const next = queue.getTrackAt(index + 1);
-      try {
-        await playbackService.startTrack(
-          mediaProductFor(track, queue.source),
-          next ? mediaProductFor(next, queue.source) : undefined,
-        );
-      } catch (error) {
-        if (isPlayInterruption(error)) return;
-        if (isSkippableError(error)) {
-          await skipUnplayable(track, error);
-          return;
-        }
-        logToTerminal("error", `startTrack failed: ${errorMessage(error)}`);
-        set({ error: `No se pudo iniciar la reproducción: ${errorMessage(error)}`, isPlaying: false });
-      }
+      set({ currentTrack: track, position: 0, duration: track.duration, error: null });
+      await startTrack(track);
     },
 
     togglePlay: async () => {
       const state = get();
       if (!state.currentTrack) return;
       if (state.isPlaying) {
-        playbackService.pause();
         set({ isPlaying: false });
+        await playbackService.pause();
       } else {
         try {
           await playbackService.resume();
         } catch (error) {
-          if (isPlayInterruption(error)) return;
           logToTerminal("error", `resume failed: ${errorMessage(error)}`);
-          set({ error: `No se pudo reanudar: ${errorMessage(error)}`, isPlaying: false });
+          set({ error: `Could not resume playback: ${errorMessage(error)}`, isPlaying: false });
         }
       }
     },
@@ -305,12 +262,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       } catch (error) {
         logToTerminal("error", `seek failed: ${errorMessage(error)}`);
       }
-      set({ position: playbackService.getPosition() });
     },
 
     setVolume: (level) => {
       const clamped = Math.max(0, Math.min(100, level));
-      playbackService.setVolume(clamped / 100);
+      playbackService.setVolume(clamped);
       set({ volume: clamped });
     },
 
@@ -352,6 +308,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         isPlaying: false,
         position: 0,
         duration: 0,
+        audioFormat: null,
         error: null,
         isQueueOpen: false,
       });
