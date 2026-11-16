@@ -13,8 +13,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
-    "package:linux": "npm run build && electron-builder --linux",
-    "package:win": "npm run build && electron-builder --win"
+    "package:linux": "npm run build && node scripts/packageApp.mjs linux",
+    "package:win": "npm run build && node scripts/packageApp.mjs win"
   },
   "engines": {
     "node": ">=22.12.0"

@@ -156,7 +156,7 @@ export async function getCollectionArtistsPage(cursor: string | null): Promise<A
   if (cursor) await sleep(COLLECTION_BASE_PACING_MS);
   const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/userCollectionArtists/me/relationships/items`);
   itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
-  itemsUrl.searchParams.set("sort", "name");
+  itemsUrl.searchParams.set("sort", "-addedAt");
   itemsUrl.searchParams.append("include", "items");
   itemsUrl.searchParams.append("include", "items.profileArt");
   if (cursor) itemsUrl.searchParams.set("page[cursor]", cursor);

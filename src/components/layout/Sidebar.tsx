@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { NavLink } from "react-router";
+import { SidebarPlaylists } from "@/components/layout/SidebarPlaylists";
 import { useLogout } from "@/hooks/useLogout";
 import { PREFERENCE_KEYS, readBooleanPreference } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
@@ -77,7 +78,9 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-0.5 px-2 pb-3">
+      <SidebarPlaylists isRail={isCollapsed} />
+
+      <div className="flex flex-col gap-0.5 border-t border-sidebar-border px-2 pt-2 pb-3">
         <button
           type="button"
           title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}

@@ -23,6 +23,8 @@ export interface PlaylistSummary {
   numberOfItems: number;
   duration: number;
   playlistType?: string | null;
+  // ISO date of the last change to the playlist, when TIDAL reports it.
+  lastModifiedAt?: string | null;
 }
 
 export interface AlbumSummary {

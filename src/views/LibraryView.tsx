@@ -1,12 +1,23 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { ArtistCardLink } from "@/components/media/ArtistCardLink";
 import { MediaGrid } from "@/components/media/MediaGrid";
+import { SortControl, useStoredSort } from "@/components/media/SortControl";
 import { Button } from "@/components/ui/button";
 import { useMediaActions } from "@/hooks/useMediaActions";
+import {
+  ALBUM_SORT_LABELS,
+  ARTIST_SORT_LABELS,
+  PLAYLIST_SORT_LABELS,
+  isSortKeyOf,
+  sortAlbums,
+  sortArtists,
+  sortPlaylists,
+} from "@/lib/librarySort";
 import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
+import { PREFERENCE_KEYS } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
 import type { AlbumPage, ArtistPage, PlaylistSummary } from "@/types/media";
@@ -28,6 +39,10 @@ function LoadingRow() {
   );
 }
 
+const isPlaylistSortKey = isSortKeyOf(PLAYLIST_SORT_LABELS);
+const isAlbumSortKey = isSortKeyOf(ALBUM_SORT_LABELS);
+const isArtistSortKey = isSortKeyOf(ARTIST_SORT_LABELS);
+
 function PlaylistsTab({ filter }: { filter: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -46,12 +61,19 @@ function PlaylistsTab({ filter }: { filter: string }) {
     ...QUERY_OPTIONS,
   });
 
+  const sort = useStoredSort(
+    PREFERENCE_KEYS.libraryPlaylistSort,
+    PREFERENCE_KEYS.libraryPlaylistSortDescending,
+    isPlaylistSortKey,
+    "added",
+  );
   const cards = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    return (playlistsQuery.data ?? [])
-      .filter((playlist) => !needle || playlist.title.toLowerCase().includes(needle))
-      .map(playlistToMedia);
-  }, [playlistsQuery.data, filter]);
+    const matching = (playlistsQuery.data ?? []).filter(
+      (playlist) => !needle || playlist.title.toLowerCase().includes(needle),
+    );
+    return sortPlaylists(matching, sort.sortKey, sort.descending).map(playlistToMedia);
+  }, [playlistsQuery.data, filter, sort.sortKey, sort.descending]);
 
   const createPlaylist = async (event: FormEvent) => {
     event.preventDefault();
@@ -77,6 +99,14 @@ function PlaylistsTab({ filter }: { filter: string }) {
 
   return (
     <>
+      <SortControl
+        listName="playlists"
+        labels={PLAYLIST_SORT_LABELS}
+        sortKey={sort.sortKey}
+        descending={sort.descending}
+        onChange={sort.setSort}
+        className="mb-4 max-w-56"
+      />
       <form className="mb-5 flex max-w-md items-center gap-2" onSubmit={(event) => void createPlaylist(event)}>
         <input
           type="text"
@@ -136,10 +166,16 @@ function AlbumsTab({ filter }: { filter: string }) {
     ...QUERY_OPTIONS,
   });
 
+  const sort = useStoredSort(
+    PREFERENCE_KEYS.libraryAlbumSort,
+    PREFERENCE_KEYS.libraryAlbumSortDescending,
+    isAlbumSortKey,
+    "added",
+  );
   const cards = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    return (albumsQuery.data?.pages ?? [])
-      .flatMap((page) => page.albums)
+    const albums = (albumsQuery.data?.pages ?? []).flatMap((page) => page.albums);
+    return sortAlbums(albums, sort.sortKey, sort.descending)
       .map(albumToMedia)
       .filter(
         (media) =>
@@ -147,10 +183,25 @@ function AlbumsTab({ filter }: { filter: string }) {
           media.title.toLowerCase().includes(needle) ||
           (media.subtitle ?? "").toLowerCase().includes(needle),
       );
-  }, [albumsQuery.data, filter]);
+  }, [albumsQuery.data, filter, sort.sortKey, sort.descending]);
+
+  // Sorting only makes sense over the whole list, so the remaining pages are
+  // fetched as soon as an order other than TIDAL's own is chosen.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = albumsQuery;
+  useEffect(() => {
+    if (sort.sortKey !== "added" && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [sort.sortKey, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <>
+      <SortControl
+        listName="albums"
+        labels={ALBUM_SORT_LABELS}
+        sortKey={sort.sortKey}
+        descending={sort.descending}
+        onChange={sort.setSort}
+        className="mb-4 max-w-56"
+      />
       {playError && (
         <p role="alert" className="pb-4 text-sm text-destructive">
           Couldn't start playback: {playError}
@@ -196,15 +247,35 @@ function ArtistsTab({ filter }: { filter: string }) {
     ...QUERY_OPTIONS,
   });
 
+  const sort = useStoredSort(
+    PREFERENCE_KEYS.libraryArtistSort,
+    PREFERENCE_KEYS.libraryArtistSortDescending,
+    isArtistSortKey,
+    "name",
+  );
   const artists = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    return (artistsQuery.data?.pages ?? [])
-      .flatMap((page) => page.artists)
-      .filter((artist) => !needle || artist.name.toLowerCase().includes(needle));
-  }, [artistsQuery.data, filter]);
+    const loaded = (artistsQuery.data?.pages ?? []).flatMap((page) => page.artists);
+    return sortArtists(loaded, sort.sortKey, sort.descending).filter(
+      (artist) => !needle || artist.name.toLowerCase().includes(needle),
+    );
+  }, [artistsQuery.data, filter, sort.sortKey, sort.descending]);
+
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = artistsQuery;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <>
+      <SortControl
+        listName="artists"
+        labels={ARTIST_SORT_LABELS}
+        sortKey={sort.sortKey}
+        descending={sort.descending}
+        onChange={sort.setSort}
+        className="mb-4 max-w-56"
+      />
       {artistsQuery.isLoading && <LoadingRow />}
       {artistsQuery.isError && (
         <p role="alert" className="py-8 text-center text-sm text-destructive">

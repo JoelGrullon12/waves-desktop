@@ -54,6 +54,7 @@ export interface PlaylistSummary {
   numberOfItems: number;
   duration: number;
   playlistType: string | null;
+  lastModifiedAt: string | null;
 }
 
 export interface AlbumSummary {
@@ -359,6 +360,7 @@ export function playlistSummaryFromResource(
     numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
     duration: iso8601DurationToSeconds(attributeString(resource, "duration") ?? ""),
     playlistType: attributeString(resource, "playlistType"),
+    lastModifiedAt: attributeString(resource, "lastModifiedAt"),
   };
 }
 

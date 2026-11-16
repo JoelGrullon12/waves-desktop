@@ -14,6 +14,14 @@ export const PREFERENCE_KEYS = {
   favoritesWindowDays: "favorites.windowDays",
   theme: "ui.theme",
   sidebarCollapsed: "ui.sidebarCollapsed",
+  sidebarPlaylistSort: "ui.sidebarPlaylistSort",
+  sidebarPlaylistSortDescending: "ui.sidebarPlaylistSortDescending",
+  libraryPlaylistSort: "library.playlistSort",
+  libraryPlaylistSortDescending: "library.playlistSortDescending",
+  libraryAlbumSort: "library.albumSort",
+  libraryAlbumSortDescending: "library.albumSortDescending",
+  libraryArtistSort: "library.artistSort",
+  libraryArtistSortDescending: "library.artistSortDescending",
 } as const;
 
 export type PreferenceValues = Record<string, string>;
