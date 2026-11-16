@@ -2,6 +2,9 @@ import type {
   EnginePlayResult,
   EngineSnapshot,
   PlayedTrack,
+  RemoteCommand,
+  RemoteControlInfo,
+  RemoteState,
   SyncStatus,
 } from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
@@ -87,6 +90,12 @@ declare global {
       // Cloud copy of the play counts (Turso).
       getSyncStatus: () => Promise<SyncStatus>;
       runSyncNow: () => Promise<SyncStatus>;
+      // Phone remote served on the local network.
+      getRemoteControlInfo: () => Promise<RemoteControlInfo>;
+      setRemoteControlEnabled: (enabled: boolean) => Promise<RemoteControlInfo>;
+      regenerateRemoteControlToken: () => Promise<RemoteControlInfo>;
+      publishRemoteState: (state: RemoteState) => Promise<void>;
+      onRemoteCommand: (listener: (command: RemoteCommand) => void) => () => void;
       // Playback engine (TIDAL's web player in a hidden window).
       playerPlay: (trackId: string) => Promise<EnginePlayResult>;
       playerSetNext: (trackId: string | null) => Promise<boolean>;

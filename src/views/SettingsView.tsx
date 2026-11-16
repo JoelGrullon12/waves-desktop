@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import type { ReactNode } from "react";
+import { RemoteControlSection } from "@/components/settings/RemoteControlSection";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/hooks/useLogout";
 import {
@@ -278,6 +279,8 @@ export function SettingsView() {
             />
           </div>
         </SettingsSection>
+
+        <RemoteControlSection />
 
         <CloudSyncSection />
 

@@ -6,10 +6,12 @@ import { PlayerBar } from "@/components/player/PlayerBar";
 import { QueuePanel } from "@/components/player/QueuePanel";
 import { AddToPlaylistsDialog } from "@/components/tracks/AddToPlaylistsDialog";
 import { useMediaSession } from "@/hooks/useMediaSession";
+import { useRemoteControlBridge } from "@/hooks/useRemoteControlBridge";
 import { usePlayerStore } from "@/store/playerStore";
 
 export function AppShell() {
   useMediaSession();
+  useRemoteControlBridge();
   const error = usePlayerStore((state) => state.error);
   const notice = usePlayerStore((state) => state.notice);
   const initPlayer = usePlayerStore((state) => state.init);

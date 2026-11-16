@@ -75,6 +75,16 @@ contextBridge.exposeInMainWorld("api", {
   getSyncStatus: () => ipcRenderer.invoke("sync:get-status"),
   runSyncNow: () => ipcRenderer.invoke("sync:run-now"),
 
+  getRemoteControlInfo: () => ipcRenderer.invoke("remote:get-info"),
+  setRemoteControlEnabled: (enabled: boolean) => ipcRenderer.invoke("remote:set-enabled", enabled),
+  regenerateRemoteControlToken: () => ipcRenderer.invoke("remote:regenerate-token"),
+  publishRemoteState: (state: unknown) => ipcRenderer.invoke("remote:publish-state", state),
+  onRemoteCommand: (listener: (command: unknown) => void) => {
+    const forward = (_event: IpcRendererEvent, command: unknown) => listener(command);
+    ipcRenderer.on("remote:command", forward);
+    return () => ipcRenderer.removeListener("remote:command", forward);
+  },
+
   // Only answered when the app runs with WAVES_DEBUG_API=1 (see tidalApiClient.ts).
   debugApiGet: (path: string) => ipcRenderer.invoke("debug:api-get", path),
 

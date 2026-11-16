@@ -7,6 +7,11 @@ import { registerLibraryHandlers } from "./libraryCatalog";
 import { registerApiExplorer } from "./tidalApiClient";
 import { registerStatsHandlers, setPlayCountedListener } from "./playCountRepository";
 import { registerPreferencesHandlers } from "./preferencesRepository";
+import {
+  getRemoteControl,
+  registerRemoteControlHandlers,
+  REMOTE_COMMAND_CHANNEL,
+} from "./remoteControl";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
 import {
@@ -77,7 +82,11 @@ async function createWindow(): Promise<void> {
   const stopForwardingMediaKeys = tidalWebPlayer.onMediaKey((command) => {
     sendToRenderer(mainWindow, PLAYER_MEDIA_KEY_CHANNEL, command);
   });
+  getRemoteControl().onCommand((command) =>
+    sendToRenderer(mainWindow, REMOTE_COMMAND_CHANNEL, command),
+  );
   mainWindow.on("closed", () => {
+    void getRemoteControl().stop();
     stopForwardingPlayerState();
     stopForwardingMediaKeys();
     // The engine window is hidden: without this the app would keep running
@@ -125,6 +134,8 @@ app.whenReady().then(async () => {
   registerSyncHandlers();
   setPlayCountedListener(pushPlayedTrack);
   void startTursoSync();
+  registerRemoteControlHandlers();
+  void getRemoteControl().restore();
   setWebSessionListener((isConnected) => {
     if (isConnected) tidalWebPlayer.warmUp();
     else tidalWebPlayer.shutDown();

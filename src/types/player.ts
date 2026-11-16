@@ -59,3 +59,35 @@ export interface SyncStatus {
   // Plays counted locally that have not reached the cloud yet.
   pendingTracks: number;
 }
+
+// --- Phone remote (see electron/main/remoteControl.ts) ---
+
+export type RemoteCommand =
+  | { type: "play" }
+  | { type: "pause" }
+  | { type: "next" }
+  | { type: "previous" }
+  | { type: "set_volume"; value: number }
+  | { type: "seek"; value: number };
+
+export interface RemoteState {
+  trackId: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  artworkUrl: string | null;
+  isPlaying: boolean;
+  positionSeconds: number;
+  durationSeconds: number;
+  volume: number;
+}
+
+export interface RemoteControlInfo {
+  isEnabled: boolean;
+  isRunning: boolean;
+  port: number;
+  // Address a phone on the same network opens; null when no network is up.
+  url: string | null;
+  connectedClients: number;
+  error: string | null;
+}

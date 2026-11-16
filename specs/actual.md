@@ -13,7 +13,7 @@ Pruebas reales: app lanzada con puerto de depuración y manejada por CDP (`scrip
 - [x] **4 — Smart shuffle + stats:** `baseline_count`, `playCountRepository.ts`, `smartShuffle.ts`, conteo al pasar el umbral (30 s), IPC `stats:*`, Most Listened en Home.
 - [x] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
 - [x] **7 — Favorites:** playlist virtual `/favorites` (top N en ventana de días, configurable).
-- [ ] **6 — Control remoto:** `remoteControl.ts` (`node:http` + `ws`, token de emparejamiento), página remota, QR en Ajustes (`qrcode-generator`).
+- [x] **6 — Control remoto:** `remoteControl.ts` (`node:http` + `ws`, token de emparejamiento), página remota, QR en Ajustes (`qrcode-generator`).
 - [ ] **8 — Cache de metadata:** tablas `cached_*`, `metadataCache.ts`, interruptor global, refresco en segundo plano, búsqueda en colección con conteo y playlists.
 - [ ] **Cierre:** decidir SDK, docs (`AGENTS.md`, `ROADMAP.md`, `README.md`, `.env.example`), `npm run package:linux`, archivar esta sesión.
 
@@ -47,6 +47,9 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
 
 - **Empaquetado Windows (2026-11-16):** `npm run package:win` fallaba en Linux porque `electronDist` apuntaba al binario de Linux. `scripts/packageApp.mjs` descarga el build de la plataforma destino del fork a `node_modules/.cache/waves-electron/<plataforma>-<arch>` y empaqueta desde ahí. Desde Linux sin Wine genera `dist/Waves Desktop-0.2.0-win.zip` (portable, `.exe` PE64 comprobado, icono por defecto); el instalador NSIS requiere Wine o empaquetar en Windows. No probado en una máquina Windows.
 - **Playlists en la barra lateral + orden (2026-11-16):** `SidebarPlaylists` ocupa el resto de la barra con scroll propio (solo portadas en modo compacto); `SortControl` + `src/lib/librarySort.ts` ordenan por fecha añadida, última modificación, nombre o nº de canciones, ascendente/descendente, recordado en preferencias. También en Library (playlists, álbumes, artistas). Probado por CDP (52 playlists, orden y scroll).
+
+- **Fase 6 (2026-11-16):** `remoteControl.ts` (servidor `node:http` + `ws` en `REMOTE_CONTROL_WEBSOCKET_PORT`, por defecto 47836; apagado hasta activarlo en Ajustes), `remoteControlPage.ts` (página autocontenida para el móvil), `remoteProtocol.ts` (validación de comandos y del estado, token comparado en tiempo constante; tests), IPC `remote:*`, `useRemoteControlBridge` (ejecuta los comandos y publica pista/estado/volumen al cambiar y la posición cada 5 s), sección "Phone remote" en Ajustes con QR (`qrcode-generator`, dibujado como SVG) y "Make a new code" (invalida los móviles emparejados).
+  - Probado con un cliente que hace de teléfono (`.tmp/remote-client.mjs`): página 200 solo con el token (403 sin él o con uno falso, 404 en otras rutas, WebSocket rechazado sin token), play / volumen / siguiente / anterior / seek / pausa actúan sobre el reproductor real y el estado vuelve por `state_sync`; mensajes basura ignorados. **Falta** probarlo con un teléfono real (y abrir el puerto en firewalld si lo bloquea).
 
 ## Decisiones (y por que)
 - **Motor web en vez del SDK (2026-11-15):** el CDN solo sirve audio a `tidal.com`; el SDK queda como respaldo y se elimina al cierre si no hace falta.
