@@ -12,6 +12,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Link } from "react-router";
+import { ArtistLinks } from "@/components/tracks/ArtistLinks";
 import { Button } from "@/components/ui/button";
 import { formatAudioFormat, formatDuration } from "@/lib/format";
 import type { RepeatMode } from "@/lib/queueOrder";
@@ -140,7 +141,7 @@ export function PlayerBar() {
                 )}
               </p>
               <p className="truncate text-xs text-muted-foreground" data-testid="player-artist">
-                {currentTrack.artists.map((artist) => artist.name).join(", ")}
+                <ArtistLinks artists={currentTrack.artists} />
               </p>
             </div>
             <LikeButton />
@@ -200,7 +201,7 @@ export function PlayerBar() {
             value={position}
             disabled={!currentTrack}
             aria-label="Seek"
-            className="h-1.5 w-56 cursor-pointer appearance-none rounded-full bg-muted accent-primary md:w-72"
+            className="h-1.5 w-36 cursor-pointer appearance-none rounded-full bg-muted accent-primary sm:w-56 lg:w-72"
             onChange={(event) => void seek(Number(event.target.value))}
           />
           <span className="w-10 text-xs tabular-nums text-muted-foreground">
@@ -238,7 +239,7 @@ export function PlayerBar() {
           step={1}
           value={volume}
           aria-label="Volume"
-          className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+          className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-muted accent-primary max-md:hidden"
           onChange={(event) => setVolume(Number(event.target.value))}
         />
         <Button

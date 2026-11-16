@@ -274,6 +274,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       }
     },
     onNotice: (message) => showNotice(message),
+    onMediaKey: (command) => void (command === "next" ? get().next() : get().previous()),
   });
 
   // Applies the stored volume, shuffle and repeat, then brings back the queue

@@ -38,6 +38,8 @@ const SEEK_SETTLE_TIMEOUT_MS = 1_500;
 const SEEK_SETTLE_TOLERANCE_SECONDS = 2;
 
 export const ENGINE_GLOBAL = "__wavesEngine";
+// Prefix of the console lines the page uses to report a media key press.
+export const MEDIA_KEY_MARKER = "__waves_media_key__:";
 
 const ENGINE_INSTALL_SOURCE = `
 (() => {
@@ -236,6 +238,23 @@ const ENGINE_INSTALL_SOURCE = `
     }
     return false;
   };
+
+  // The page that makes the sound owns the operating system's media keys, and
+  // its own next / previous know nothing about the Waves queue. Those two keys
+  // are handed to the app as a console line the main process listens for; the
+  // page is kept from registering its own handlers for them.
+  if (navigator.mediaSession) {
+    const session = navigator.mediaSession;
+    const setHandler = session.setActionHandler.bind(session);
+    const forwarded = { nexttrack: "next", previoustrack: "previous" };
+    session.setActionHandler = (action, handler) => {
+      if (action in forwarded) return;
+      setHandler(action, handler);
+    };
+    for (const [action, command] of Object.entries(forwarded)) {
+      setHandler(action, () => console.info("${MEDIA_KEY_MARKER}" + command));
+    }
+  }
 
   window.${ENGINE_GLOBAL} = {
     snapshot,

@@ -29,6 +29,8 @@ export interface PlaybackServiceClient {
   // The current track played to its end and nothing was queued after it.
   onEnded(): void;
   onNotice(message: string): void;
+  // Next / previous pressed on the keyboard or the system media panel.
+  onMediaKey(command: "next" | "previous"): void;
 }
 
 // Applying the volume is retried while the web player disagrees, but not on
@@ -53,9 +55,14 @@ export class PlaybackService {
     this.previousSnapshot = null;
     this.announcedPlaybackId = null;
     this.stopListeningToEngine?.();
-    this.stopListeningToEngine = window.api.onPlayerState((snapshot) =>
-      this.handleSnapshot(snapshot),
+    const stopState = window.api.onPlayerState((snapshot) => this.handleSnapshot(snapshot));
+    const stopMediaKeys = window.api.onPlayerMediaKey((command) =>
+      this.client?.onMediaKey(command),
     );
+    this.stopListeningToEngine = () => {
+      stopState();
+      stopMediaKeys();
+    };
   }
 
   stopListening(): void {

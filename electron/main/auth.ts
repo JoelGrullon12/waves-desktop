@@ -1,4 +1,5 @@
 import { app, safeStorage, shell } from "electron";
+import { forgetAccountCountry } from "./tidalApiClient";
 import { createHash, randomBytes, createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
@@ -261,6 +262,7 @@ async function login(): Promise<TokenBundle> {
 }
 
 async function logout(): Promise<void> {
+  forgetAccountCountry();
   const filePath = tokenBundleFilePath();
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);

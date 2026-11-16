@@ -1,5 +1,5 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
-import { Disc3, Heart, HeartOff, ListEnd, ListPlus, ListStart, Play } from "lucide-react";
+import { Disc3, Heart, HeartOff, ListEnd, ListPlus, ListStart, Play, User } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useIsLiked, useLikedStore } from "@/store/likedStore";
@@ -17,7 +17,9 @@ interface TrackContextMenuProps {
 
 const ITEM_CLASS =
   "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted data-[disabled]:cursor-default data-[disabled]:opacity-50";
-const ICON_CLASS = "size-4 text-muted-foreground";
+const ICON_CLASS = "size-4 shrink-0 text-muted-foreground";
+// A track with many credited artists would otherwise fill the menu.
+const MAX_ARTIST_ENTRIES = 3;
 
 // Right-click menu of a track row.
 export function TrackContextMenu({ track, children, onPlay }: TrackContextMenuProps) {
@@ -90,6 +92,18 @@ export function TrackContextMenu({ track, children, onPlay }: TrackContextMenuPr
               <Disc3 className={ICON_CLASS} aria-hidden />
               Go to album
             </ContextMenu.Item>
+            {track.artists.slice(0, MAX_ARTIST_ENTRIES).map((artist) => (
+              <ContextMenu.Item
+                key={artist.id}
+                className={ITEM_CLASS}
+                onClick={() => void navigate(`/artists/${artist.id}`)}
+              >
+                <User className={ICON_CLASS} aria-hidden />
+                <span className="truncate">
+                  {track.artists.length === 1 ? "Go to artist" : `Go to ${artist.name}`}
+                </span>
+              </ContextMenu.Item>
+            ))}
           </ContextMenu.Popup>
         </ContextMenu.Positioner>
       </ContextMenu.Portal>

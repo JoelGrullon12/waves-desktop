@@ -3,10 +3,17 @@ import path from "node:path";
 import { registerAuthHandlers } from "./auth";
 import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
+import { registerLibraryHandlers } from "./libraryCatalog";
+import { registerApiExplorer } from "./tidalApiClient";
 import { registerPreferencesHandlers } from "./preferencesRepository";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
-import { PLAYER_STATE_CHANNEL, registerPlayerHandlers, tidalWebPlayer } from "./tidalWebPlayer";
+import {
+  PLAYER_MEDIA_KEY_CHANNEL,
+  PLAYER_STATE_CHANNEL,
+  registerPlayerHandlers,
+  tidalWebPlayer,
+} from "./tidalWebPlayer";
 import { registerWebSessionHandlers, setWebSessionListener } from "./webSessionAuth";
 import { installWidevineFromCache, type WidevineInstallResult } from "./widevineInstaller";
 
@@ -57,8 +64,12 @@ async function createWindow(): Promise<void> {
   const stopForwardingPlayerState = tidalWebPlayer.onSnapshot((snapshot) => {
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send(PLAYER_STATE_CHANNEL, snapshot);
   });
+  const stopForwardingMediaKeys = tidalWebPlayer.onMediaKey((command) => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send(PLAYER_MEDIA_KEY_CHANNEL, command);
+  });
   mainWindow.on("closed", () => {
     stopForwardingPlayerState();
+    stopForwardingMediaKeys();
     // The engine window is hidden: without this the app would keep running
     // (and playing) with no visible window.
     tidalWebPlayer.shutDown();
@@ -94,8 +105,10 @@ app.whenReady().then(async () => {
   registerCredentialHandlers();
   registerAuthHandlers();
   registerCatalogHandlers();
+  registerLibraryHandlers();
   registerWebSessionHandlers();
   registerPlayerHandlers();
+  registerApiExplorer();
   initializeDatabase();
   registerPreferencesHandlers();
   setWebSessionListener((isConnected) => {

@@ -2,7 +2,11 @@ import type { EnginePlayResult, EngineSnapshot } from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
 import type {
   AlbumDetail,
+  AlbumPage,
   AlbumSummary,
+  ArtistCard,
+  ArtistPage,
+  SearchResults,
   MixRelationName,
   MixSummary,
   PlaylistDetail,
@@ -49,6 +53,14 @@ declare global {
       getAlbumDetail: (albumId: string) => Promise<AlbumDetail>;
       getPlaylistDetail: (playlistId: string) => Promise<PlaylistDetail>;
       getMixDetail: (mixType: string, mixId: string) => Promise<MixSummary>;
+      getReleasesFeed: () => Promise<AlbumSummary[]>;
+      getArtistDetail: (artistId: string) => Promise<ArtistCard>;
+      getArtistTracksPage: (artistId: string, cursor: string | null) => Promise<TrackPage>;
+      getArtistAlbumsPage: (artistId: string, cursor: string | null) => Promise<AlbumPage>;
+      getCollectionAlbumsPage: (cursor: string | null) => Promise<AlbumPage>;
+      getCollectionArtistsPage: (cursor: string | null) => Promise<ArtistPage>;
+      // Albums, artists and playlists; tracks come from `searchTracks`.
+      searchCollections: (query: string) => Promise<SearchResults>;
       // Writes to the user's TIDAL library.
       addTracksToLikes: (trackIds: string[]) => Promise<void>;
       removeTracksFromLikes: (trackIds: string[]) => Promise<void>;
@@ -69,6 +81,8 @@ declare global {
       playerSetVolume: (level: number) => Promise<boolean>;
       playerStop: () => Promise<boolean>;
       onPlayerState: (listener: (snapshot: EngineSnapshot) => void) => () => void;
+      // Next / previous media keys, which the page of the engine receives.
+      onPlayerMediaKey: (listener: (command: "next" | "previous") => void) => () => void;
       webLogin: () => Promise<{ success: boolean; error?: string }>;
       webLogout: () => Promise<{ success: boolean }>;
       isWebSessionConnected: () => Promise<boolean>;

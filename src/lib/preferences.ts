@@ -8,6 +8,8 @@ export const PREFERENCE_KEYS = {
   repeatMode: "player.repeat",
   queueCurrentIndex: "queue.currentIndex",
   queueSource: "queue.source",
+  theme: "ui.theme",
+  sidebarCollapsed: "ui.sidebarCollapsed",
 } as const;
 
 export type PreferenceValues = Record<string, string>;

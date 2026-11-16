@@ -38,8 +38,8 @@ cualquier reproductor tradicional:
 1. **Home / resumen de la biblioteca** ✓ — pantalla principal con un resumen de la
    biblioteca del usuario (`HomeView`: playlists al azar, mixes, lanzamientos). El bloque
    "Most Listened"/top semanal se retira en la Fase C y vuelve en la Fase 4 con play counts locales.
-2. **Feed de lanzamientos** — últimos lanzamientos de artistas seguidos (v2 API).
-3. **Colección del usuario** — lista de playlists, carpetas y música del usuario.
+2. **Feed de lanzamientos** ✓ — últimos lanzamientos de artistas seguidos (`/releases`).
+3. **Colección del usuario** ✓ — playlists, álbumes y artistas guardados (`/library`). Las **carpetas** quedan fuera: la API pública lista sus ids pero responde 404 al pedir nombre o contenido (2026-11-15).
 4. **Perfiles y vistas** — perfiles de artistas (`ArtistView`, hoy no existe); álbumes y
    playlists comparten la vista genérica `MediaDetailView` ✓.
 5. **Reproductor tradicional** — shuffle y **cola dinámica**, **repetición** de canciones

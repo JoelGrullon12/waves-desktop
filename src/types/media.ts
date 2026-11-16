@@ -62,3 +62,27 @@ export interface PlaylistDetail {
 }
 
 export type MixRelationName = "myMixes" | "discoveryMixes";
+
+// An artist as shown on cards and at the top of the artist page.
+export interface ArtistCard {
+  id: string;
+  name: string;
+  picture?: string | null;
+}
+
+export interface AlbumPage {
+  albums: AlbumSummary[];
+  nextCursor: string | null;
+}
+
+export interface ArtistPage {
+  artists: ArtistCard[];
+  nextCursor: string | null;
+}
+
+// Search results other than tracks.
+export interface SearchResults {
+  albums: AlbumSummary[];
+  artists: ArtistCard[];
+  playlists: PlaylistSummary[];
+}

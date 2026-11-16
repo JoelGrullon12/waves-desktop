@@ -37,6 +37,19 @@ contextBridge.exposeInMainWorld("api", {
   getMixDetail: (mixType: string, mixId: string) =>
     ipcRenderer.invoke("catalog:get-mix-detail", mixType, mixId),
 
+  getReleasesFeed: () => ipcRenderer.invoke("catalog:get-releases-feed"),
+  getArtistDetail: (artistId: string) => ipcRenderer.invoke("library:get-artist-detail", artistId),
+  getArtistTracksPage: (artistId: string, cursor: string | null) =>
+    ipcRenderer.invoke("library:get-artist-tracks-page", artistId, cursor),
+  getArtistAlbumsPage: (artistId: string, cursor: string | null) =>
+    ipcRenderer.invoke("library:get-artist-albums-page", artistId, cursor),
+  getCollectionAlbumsPage: (cursor: string | null) =>
+    ipcRenderer.invoke("library:get-collection-albums-page", cursor),
+  getCollectionArtistsPage: (cursor: string | null) =>
+    ipcRenderer.invoke("library:get-collection-artists-page", cursor),
+  searchCollections: (query: string) =>
+    ipcRenderer.invoke("library:search-collections", query),
+
   addTracksToLikes: (trackIds: string[]) =>
     ipcRenderer.invoke("catalog:add-tracks-to-likes", trackIds),
   removeTracksFromLikes: (trackIds: string[]) =>
@@ -51,6 +64,9 @@ contextBridge.exposeInMainWorld("api", {
   saveQueue: (trackIds: string[]) => ipcRenderer.invoke("queue:save", trackIds),
   loadQueue: () => ipcRenderer.invoke("queue:load"),
 
+  // Only answered when the app runs with WAVES_DEBUG_API=1 (see tidalApiClient.ts).
+  debugApiGet: (path: string) => ipcRenderer.invoke("debug:api-get", path),
+
   playerPlay: (trackId: string) => ipcRenderer.invoke("player:play", trackId),
   playerSetNext: (trackId: string | null) => ipcRenderer.invoke("player:set-next", trackId),
   playerPause: () => ipcRenderer.invoke("player:pause"),
@@ -63,6 +79,12 @@ contextBridge.exposeInMainWorld("api", {
     const forward = (_event: IpcRendererEvent, snapshot: unknown) => listener(snapshot);
     ipcRenderer.on("player:state", forward);
     return () => ipcRenderer.removeListener("player:state", forward);
+  },
+
+  onPlayerMediaKey: (listener: (command: unknown) => void) => {
+    const forward = (_event: IpcRendererEvent, command: unknown) => listener(command);
+    ipcRenderer.on("player:media-key", forward);
+    return () => ipcRenderer.removeListener("player:media-key", forward);
   },
 
   webLogin: () => ipcRenderer.invoke("web-auth:login"),

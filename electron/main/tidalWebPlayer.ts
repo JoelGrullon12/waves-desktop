@@ -1,7 +1,7 @@
 import { BrowserWindow } from "electron";
 import type { EnginePlayResult, EngineSnapshot } from "../../src/types/player";
 import { handleTrusted } from "./secureIpc";
-import { buildEngineCall, type EngineMethod } from "./tidalWebPlayerScript";
+import { buildEngineCall, MEDIA_KEY_MARKER, type EngineMethod } from "./tidalWebPlayerScript";
 import {
   optionalResourceId,
   requireNumberInRange,
@@ -29,6 +29,10 @@ const MAX_SEEK_SECONDS = 24 * 60 * 60;
 const SHOW_ENGINE_WINDOW = process.env["WAVES_SHOW_ENGINE"] === "1";
 
 export const PLAYER_STATE_CHANNEL = "player:state";
+export const PLAYER_MEDIA_KEY_CHANNEL = "player:media-key";
+
+export type MediaKeyCommand = "next" | "previous";
+type MediaKeyListener = (command: MediaKeyCommand) => void;
 
 type SnapshotListener = (snapshot: EngineSnapshot) => void;
 
@@ -62,6 +66,13 @@ export class TidalWebPlayer {
   // Kept for the timeout message: tells a slow page apart from a broken script.
   private lastReadError: string | null = null;
   private readonly listeners = new Set<SnapshotListener>();
+  private readonly mediaKeyListeners = new Set<MediaKeyListener>();
+
+  // Next / previous pressed on the keyboard or in the system media panel.
+  onMediaKey(listener: MediaKeyListener): () => void {
+    this.mediaKeyListeners.add(listener);
+    return () => this.mediaKeyListeners.delete(listener);
+  }
 
   onSnapshot(listener: SnapshotListener): () => void {
     this.listeners.add(listener);
@@ -182,6 +193,12 @@ export class TidalWebPlayer {
     });
     this.engineWindow = createdWindow;
     createdWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    createdWindow.webContents.on("console-message", (event) => {
+      if (!event.message.startsWith(MEDIA_KEY_MARKER)) return;
+      const command = event.message.slice(MEDIA_KEY_MARKER.length);
+      if (command !== "next" && command !== "previous") return;
+      for (const listener of this.mediaKeyListeners) listener(command);
+    });
     createdWindow.webContents.on("render-process-gone", (_event, details) => {
       console.error(`web-player: page process gone (${details.reason})`);
       if (this.engineWindow === createdWindow) this.shutDown();

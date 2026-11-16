@@ -39,17 +39,20 @@ export interface ResourceIdentifier {
 
 export interface RelationshipDocument {
   data: ResourceIdentifier[];
-  included: ResourceObject[];
+  // Absent when the request asked for no related resources or none exist.
+  included?: ResourceObject[];
 }
 
 export interface SingleResourceDocument {
   data: ResourceObject;
-  included: ResourceObject[];
+  // Absent when the request asked for no related resources or none exist.
+  included?: ResourceObject[];
 }
 
 export interface MultiResourceDocument {
   data: ResourceObject[];
-  included: ResourceObject[];
+  // Absent when the request asked for no related resources or none exist.
+  included?: ResourceObject[];
 }
 
 export function isResourceObject(value: unknown): value is ResourceObject {
@@ -60,9 +63,11 @@ export function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
-export function indexResources(resources: ResourceObject[]): Map<string, ResourceObject> {
+export function indexResources(
+  resources: ResourceObject[] | undefined,
+): Map<string, ResourceObject> {
   const byId = new Map<string, ResourceObject>();
-  for (const resource of resources) byId.set(resource.id, resource);
+  for (const resource of resources ?? []) byId.set(resource.id, resource);
   return byId;
 }
 

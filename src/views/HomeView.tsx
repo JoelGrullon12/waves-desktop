@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { HorizontalScroll } from "@/components/media/HorizontalScroll";
 import { MediaCard } from "@/components/media/MediaCard";
 import { errorMessage, logToTerminal } from "@/lib/logger";
+import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
 import { playMedia } from "@/lib/mediaPlayback";
 import { randomSubset } from "@/lib/random";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
@@ -16,15 +17,6 @@ const HOME_QUERY_OPTIONS = {
   staleTime: 5 * 60 * 1000,
   gcTime: 30 * 60 * 1000,
 } as const;
-
-function playlistSubtitle(playlist: PlaylistSummary): string {
-  const playlistType = (playlist.playlistType ?? "").toUpperCase();
-  if (playlistType.includes("EDITORIAL") || playlistType.includes("TIDAL")) return "TIDAL";
-  if (playlist.numberOfItems > 0) {
-    return `${playlist.numberOfItems} ${playlist.numberOfItems === 1 ? "track" : "tracks"}`;
-  }
-  return "Playlist";
-}
 
 function playlistHasType(playlist: PlaylistSummary, types: string[]): boolean {
   const playlistType = (playlist.playlistType ?? "").toUpperCase();
@@ -38,30 +30,6 @@ function dedupeMedia(cards: MediaSummary[]): MediaSummary[] {
     seen.add(card.id);
     return true;
   });
-}
-
-function playlistToMedia(playlist: PlaylistSummary): MediaSummary {
-  return {
-    id: playlist.id,
-    type: "playlist",
-    title: playlist.title,
-    subtitle: playlistSubtitle(playlist),
-    cover: playlist.cover,
-    numberOfItems: playlist.numberOfItems,
-  };
-}
-
-function albumToMedia(album: AlbumSummary): MediaSummary {
-  const artistNames = album.artists.map((artist) => artist.name).join(", ");
-  return {
-    id: album.id,
-    type: "album",
-    title: album.title,
-    subtitle: artistNames || "Album",
-    cover: album.cover,
-    numberOfItems: album.numberOfItems,
-    releaseDate: album.releaseDate ?? undefined,
-  };
 }
 
 function mixToMedia(mix: MixSummary): MediaSummary {

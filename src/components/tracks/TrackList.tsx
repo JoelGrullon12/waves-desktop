@@ -1,6 +1,7 @@
 import { Heart, Pause, Play } from "lucide-react";
 import { useEffect } from "react";
 import { Link } from "react-router";
+import { ArtistLinks } from "@/components/tracks/ArtistLinks";
 import { TrackContextMenu } from "@/components/tracks/TrackContextMenu";
 import { formatDuration } from "@/lib/format";
 import { artworkUrl } from "@/lib/tidalImage";
@@ -106,7 +107,7 @@ function TrackRow({
               {track.title}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {track.artists.map((artist) => artist.name).join(", ")}
+              <ArtistLinks artists={track.artists} />
             </p>
           </div>
         </div>
