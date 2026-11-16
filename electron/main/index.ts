@@ -3,6 +3,7 @@ import path from "node:path";
 import { registerAuthHandlers } from "./auth";
 import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
+import { registerPreferencesHandlers } from "./preferencesRepository";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
 import { PLAYER_STATE_CHANNEL, registerPlayerHandlers, tidalWebPlayer } from "./tidalWebPlayer";
@@ -25,7 +26,6 @@ function logWidevineInstall(result: WidevineInstallResult): void {
 }
 
 async function createWindow(): Promise<void> {
-  await initializeDatabase();
 
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -96,6 +96,8 @@ app.whenReady().then(async () => {
   registerCatalogHandlers();
   registerWebSessionHandlers();
   registerPlayerHandlers();
+  initializeDatabase();
+  registerPreferencesHandlers();
   setWebSessionListener((isConnected) => {
     if (isConnected) tidalWebPlayer.warmUp();
     else tidalWebPlayer.shutDown();

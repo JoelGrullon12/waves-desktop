@@ -1,8 +1,94 @@
-import { ListMusic, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
+import {
+  Heart,
+  ListMusic,
+  Pause,
+  Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
-import { formatDuration } from "@/lib/format";
+import { formatAudioFormat, formatDuration } from "@/lib/format";
+import type { RepeatMode } from "@/lib/queueOrder";
 import { artworkUrl } from "@/lib/tidalImage";
+import { useIsLiked, useLikedStore } from "@/store/likedStore";
 import { usePlayerStore } from "@/store/playerStore";
+import { useQueueStore } from "@/store/queueStore";
+
+const REPEAT_LABELS: Record<RepeatMode, string> = {
+  off: "Repeat is off",
+  "one-once": "Repeat this track once",
+  one: "Repeat this track",
+  all: "Repeat the queue",
+};
+
+function RepeatButton() {
+  const repeatMode = useQueueStore((state) => state.repeatMode);
+  const cycleRepeatMode = usePlayerStore((state) => state.cycleRepeatMode);
+  const isActive = repeatMode !== "off";
+  const repeatsOneTrack = repeatMode === "one" || repeatMode === "one-once";
+  const Icon = repeatsOneTrack ? Repeat1 : Repeat;
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={cycleRepeatMode}
+      aria-label={REPEAT_LABELS[repeatMode]}
+      title={REPEAT_LABELS[repeatMode]}
+      data-repeat-mode={repeatMode}
+      className={`relative ${isActive ? "text-primary" : "text-muted-foreground"}`}
+    >
+      <Icon className="size-4" aria-hidden />
+      {/* Tells "one more time" apart from "until I say stop". */}
+      {repeatMode === "one-once" && (
+        <span className="absolute -right-0.5 -bottom-0.5 rounded-full bg-primary px-1 text-[0.55rem] leading-3 font-semibold text-primary-foreground">
+          1×
+        </span>
+      )}
+      {repeatMode === "one" && (
+        <span className="absolute -right-0.5 -bottom-0.5 rounded-full bg-primary px-1 text-[0.55rem] leading-3 font-semibold text-primary-foreground">
+          ∞
+        </span>
+      )}
+    </Button>
+  );
+}
+
+function LikeButton() {
+  const currentTrack = usePlayerStore((state) => state.currentTrack);
+  const showNotice = usePlayerStore((state) => state.showNotice);
+  const isLiked = useIsLiked(currentTrack?.id ?? "");
+  const setLiked = useLikedStore((state) => state.setLiked);
+  if (!currentTrack) return null;
+
+  const toggleLiked = async () => {
+    const result = await setLiked(currentTrack, !isLiked);
+    if (!result.success) showNotice(`Could not update your library: ${result.error}`);
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={() => void toggleLiked()}
+      aria-label={isLiked ? "Remove from library" : "Add to library"}
+      title={isLiked ? "Remove from library" : "Add to library"}
+      aria-pressed={isLiked}
+      className="shrink-0"
+    >
+      <Heart
+        className={`size-4 ${isLiked ? "fill-current text-primary" : "text-muted-foreground"}`}
+        aria-hidden
+      />
+    </Button>
+  );
+}
 
 export function PlayerBar() {
   const currentTrack = usePlayerStore((state) => state.currentTrack);
@@ -10,19 +96,24 @@ export function PlayerBar() {
   const position = usePlayerStore((state) => state.position);
   const duration = usePlayerStore((state) => state.duration);
   const volume = usePlayerStore((state) => state.volume);
+  const audioFormat = usePlayerStore((state) => state.audioFormat);
   const togglePlay = usePlayerStore((state) => state.togglePlay);
   const next = usePlayerStore((state) => state.next);
   const previous = usePlayerStore((state) => state.previous);
   const seek = usePlayerStore((state) => state.seek);
   const setVolume = usePlayerStore((state) => state.setVolume);
   const toggleMute = usePlayerStore((state) => state.toggleMute);
+  const toggleShuffle = usePlayerStore((state) => state.toggleShuffle);
+  const isQueueOpen = usePlayerStore((state) => state.isQueueOpen);
   const setQueueOpen = usePlayerStore((state) => state.setQueueOpen);
+  const shuffleEnabled = useQueueStore((state) => state.shuffleEnabled);
 
   const total = duration || currentTrack?.duration || 0;
-
   const artwork = currentTrack?.album?.cover
     ? artworkUrl(currentTrack.album.cover, 128)
     : undefined;
+  const formatLabel = currentTrack ? formatAudioFormat(audioFormat) : null;
+  const albumId = currentTrack?.album?.id;
 
   return (
     <footer className="flex h-20 shrink-0 items-center gap-4 border-t bg-background px-4">
@@ -39,13 +130,20 @@ export function PlayerBar() {
               <div className="h-12 w-12 shrink-0 rounded bg-muted" />
             )}
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">
-                {currentTrack.title}
+              <p className="truncate text-sm font-medium text-foreground" data-testid="player-title">
+                {albumId ? (
+                  <Link to={`/albums/${albumId}`} className="hover:underline">
+                    {currentTrack.title}
+                  </Link>
+                ) : (
+                  currentTrack.title
+                )}
               </p>
-              <p className="truncate text-xs text-muted-foreground">
+              <p className="truncate text-xs text-muted-foreground" data-testid="player-artist">
                 {currentTrack.artists.map((artist) => artist.name).join(", ")}
               </p>
             </div>
+            <LikeButton />
           </>
         ) : (
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted">
@@ -56,6 +154,17 @@ export function PlayerBar() {
 
       <div className="flex flex-col items-center gap-1.5">
         <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => void toggleShuffle()}
+            aria-label={shuffleEnabled ? "Shuffle is on" : "Shuffle is off"}
+            title={shuffleEnabled ? "Shuffle is on" : "Shuffle is off"}
+            aria-pressed={shuffleEnabled}
+            className={shuffleEnabled ? "text-primary" : "text-muted-foreground"}
+          >
+            <Shuffle className="size-4" aria-hidden />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => void previous()} aria-label="Previous">
             <SkipBack className="size-4" aria-hidden />
           </Button>
@@ -76,6 +185,7 @@ export function PlayerBar() {
           <Button variant="ghost" size="icon" onClick={() => void next()} aria-label="Next">
             <SkipForward className="size-4" aria-hidden />
           </Button>
+          <RepeatButton />
         </div>
 
         <div className="flex items-center gap-2">
@@ -100,6 +210,15 @@ export function PlayerBar() {
       </div>
 
       <div className="flex min-w-0 flex-1 basis-1/3 items-center justify-end gap-2">
+        {formatLabel && (
+          <span
+            className="hidden truncate rounded border border-border px-1.5 py-0.5 text-[0.65rem] text-muted-foreground lg:inline"
+            title="What TIDAL is streaming right now"
+            data-testid="audio-format"
+          >
+            {formatLabel}
+          </span>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -125,8 +244,10 @@ export function PlayerBar() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setQueueOpen(true)}
-          aria-label="Open queue"
+          onClick={() => setQueueOpen(!isQueueOpen)}
+          aria-label={isQueueOpen ? "Close queue" : "Open queue"}
+          aria-pressed={isQueueOpen}
+          className={isQueueOpen ? "text-primary" : undefined}
         >
           <ListMusic className="size-4" aria-hidden />
         </Button>

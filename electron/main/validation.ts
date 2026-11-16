@@ -70,6 +70,36 @@ export function requireSearchQuery(value: unknown): string {
   return query;
 }
 
+const MAX_PLAYLIST_NAME_LENGTH = 100;
+
+export function requirePlaylistName(value: unknown): string {
+  if (typeof value !== "string") throw invalidArgument("playlist name");
+  const name = value.trim();
+  if (name.length === 0 || name.length > MAX_PLAYLIST_NAME_LENGTH) {
+    throw invalidArgument("playlist name");
+  }
+  return name;
+}
+
+// Preference keys are fixed names chosen by the app ("player.volume"); the
+// value is free text the app serializes itself.
+const PREFERENCE_KEY_PATTERN = /^[a-z][A-Za-z0-9.]{0,63}$/;
+const MAX_PREFERENCE_VALUE_LENGTH = 4096;
+
+export function requirePreferenceKey(value: unknown): string {
+  if (typeof value !== "string" || !PREFERENCE_KEY_PATTERN.test(value)) {
+    throw invalidArgument("preference key");
+  }
+  return value;
+}
+
+export function requirePreferenceValue(value: unknown): string {
+  if (typeof value !== "string" || value.length > MAX_PREFERENCE_VALUE_LENGTH) {
+    throw invalidArgument("preference value");
+  }
+  return value;
+}
+
 export function requireResourceIdList(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.length > MAX_TRACK_IDS_PER_CALL) throw invalidArgument(label);
   return value.map((id) => requireResourceId(id, label));

@@ -145,6 +145,51 @@ export class TidalCatalogService {
       return { success: false, error: String(error) };
     }
   }
+
+  async addTracksToLikes(trackIds: string[]): Promise<Result<void>> {
+    try {
+      await window.api.addTracksToLikes(trackIds);
+      return { success: true, data: undefined };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async removeTracksFromLikes(trackIds: string[]): Promise<Result<void>> {
+    try {
+      await window.api.removeTracksFromLikes(trackIds);
+      return { success: true, data: undefined };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async addTracksToPlaylist(playlistId: string, trackIds: string[]): Promise<Result<void>> {
+    try {
+      await window.api.addTracksToPlaylist(playlistId, trackIds);
+      return { success: true, data: undefined };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async createPlaylist(name: string): Promise<Result<PlaylistSummary>> {
+    try {
+      const data = await window.api.createPlaylist(name);
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async deletePlaylist(playlistId: string): Promise<Result<void>> {
+    try {
+      await window.api.deletePlaylist(playlistId);
+      return { success: true, data: undefined };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
 }
 
 export const tidalCatalogService = new TidalCatalogService();

@@ -37,6 +37,20 @@ contextBridge.exposeInMainWorld("api", {
   getMixDetail: (mixType: string, mixId: string) =>
     ipcRenderer.invoke("catalog:get-mix-detail", mixType, mixId),
 
+  addTracksToLikes: (trackIds: string[]) =>
+    ipcRenderer.invoke("catalog:add-tracks-to-likes", trackIds),
+  removeTracksFromLikes: (trackIds: string[]) =>
+    ipcRenderer.invoke("catalog:remove-tracks-from-likes", trackIds),
+  addTracksToPlaylist: (playlistId: string, trackIds: string[]) =>
+    ipcRenderer.invoke("catalog:add-tracks-to-playlist", playlistId, trackIds),
+  createPlaylist: (name: string) => ipcRenderer.invoke("catalog:create-playlist", name),
+  deletePlaylist: (playlistId: string) => ipcRenderer.invoke("catalog:delete-playlist", playlistId),
+
+  getPreferences: () => ipcRenderer.invoke("preferences:get-all"),
+  setPreference: (key: string, value: string) => ipcRenderer.invoke("preferences:set", key, value),
+  saveQueue: (trackIds: string[]) => ipcRenderer.invoke("queue:save", trackIds),
+  loadQueue: () => ipcRenderer.invoke("queue:load"),
+
   playerPlay: (trackId: string) => ipcRenderer.invoke("player:play", trackId),
   playerSetNext: (trackId: string | null) => ipcRenderer.invoke("player:set-next", trackId),
   playerPause: () => ipcRenderer.invoke("player:pause"),

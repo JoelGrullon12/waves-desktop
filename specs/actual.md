@@ -8,7 +8,7 @@ Criterio: cada fase con `npm run verify` verde + prueba real en la app; un commi
 Prefijo de comandos: `source ~/.nvm/nvm.sh && nvm exec 22 <cmd>`.
 Pruebas reales: app lanzada con puerto de depuración y manejada por CDP (`scripts/driveApp.mjs`); `LOCAL_SQLITE_PATH` a una base de pruebas para no ensuciar los conteos reales.
 - [x] **R — Motor web:** `electron/main/tidalWebPlayer.ts` (ventana oculta `tidal.com`, partición `persist:tidal-web`), IPC `player:*` + evento de estado, `playbackService`/`playerStore` sobre el motor; avance de cola al terminar cada canción.
-- [ ] **3A — Reproductor + menú + likes:** shuffle/repeat persistentes (repeat: off → canción 1 vez → canción infinita → playlist), cola dinámica (play next / add to queue), escrituras v2 (like/unlike, añadir a playlists, crear playlist), `TrackContextMenu` funcional, `AddToPlaylistsDialog` (checkboxes + "Agregar"), enlaces a álbum/artista.
+- [x] **3A — Reproductor + menú + likes:** shuffle/repeat persistentes (repeat: off → canción 1 vez → canción infinita → playlist), cola dinámica (play next / add to queue), escrituras v2 (like/unlike, añadir a playlists, crear playlist), `TrackContextMenu` funcional, `AddToPlaylistsDialog` (checkboxes + "Agregar"), enlaces a álbum/artista.
 - [ ] **3B — Navegación y biblioteca:** `ArtistView`, `LibraryView` (playlists, carpetas, álbumes, artistas), feed de lanzamientos, `SearchView` con switch TIDAL/Colección, tema claro/oscuro/sistema, Ajustes ampliados, layout adaptable.
 - [ ] **4 — Smart shuffle + stats:** `baseline_count`, `playCountRepository.ts`, `smartShuffle.ts`, conteo al pasar el umbral (30 s), IPC `stats:*`, Most Listened en Home.
 - [ ] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
@@ -25,6 +25,10 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
   - Probado con la UI real por CDP (`scripts/driveApp.mjs`, guion `.tmp/accept-r.js`) en `npm run dev` y en el build de producción (`preview`): inicio ~1 s, pausa/reanudar, seek, siguiente/anterior, 2 avances automáticos seguidos, volumen, fin de cola (se detiene), canción inexistente → `unavailable` en 1 s. FLAC LOSSLESS 16/44.1 FULL.
   - Herramientas de prueba: `scripts/runElectron.mjs` acepta flags extra (`--remote-debugging-port=9222`); `.tmp/` (ignorado por git) guarda `start.sh`/`stop.sh`/`restart.sh`, guiones y logs; filas de `TrackList` llevan `data-track-id`.
 
+- **Fase 3A (2026-11-15):** cola con orden de reproducción + orden original (`queueStore`, reglas puras en `src/lib/queueOrder.ts`), shuffle persistente, repetición `off → one-once → one → all` (`one-once` se apaga sola tras repetir), `playNext`/`addToQueue`/mover/quitar, y restauración al arrancar de volumen, shuffle, repeat y cola (ventana de hasta 500 canciones, en pausa). Preferencias en SQLite (`preferencesRepository.ts`, IPC `preferences:*`/`queue:*`, `preferencesStore`, `src/lib/preferences.ts`). Escrituras v2 en `catalog.ts`: like/unlike, añadir a playlist, crear/borrar playlist (IPC `catalog:*`); errores de la API resumidos (`TidalApiError`, ya no se vuelca el intercambio HTTP con el token); mixes 404 → lista vacía. UI: `PlayerBar` (shuffle, repeat con insignia 1×/∞, corazón, calidad en curso), `QueuePanel` (subir/bajar/quitar, ventana alrededor de la actual), `TrackContextMenu` funcional, `AddToPlaylistsDialog` (filtro + checkboxes + "Add", solo playlists `USER`), corazones clicables y enlace al álbum en `TrackList`.
+  - Probado por CDP (`.tmp/accept-3a-1..3.js`): shuffle on/off, los tres modos de repetición (incluido que Next sale de "repetir canción"), play next / add to queue / mover / quitar, like+unlike real contra TIDAL (revertido), añadir una canción a dos playlists temporales "Waves test A/B" a la vez (borradas después) y restauración tras reiniciar.
+  - Nota: TIDAL tarda ~1-2 s en listar una playlist recién creada; el diálogo refresca la lista en cada apertura.
+
 ## Decisiones (y por que)
 - **Motor web en vez del SDK (2026-11-15):** el CDN solo sirve audio a `tidal.com`; el SDK queda como respaldo y se elimina al cierre si no hace falta.
 - **Control mixto del motor (2026-11-15):** iniciar canción navegando a `tidal.com/track/{id}` + clic en play; pausa/seek/volumen sobre el `<video>`; estado leído del `<video>`. Si TIDAL cambia un selector solo se rompe una pieza.
@@ -39,6 +43,7 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
 - **Git (2026-11-15):** commit por fase verificada + push de `fable-dev`.
 
 ## Pendiente / proximos pasos
+- **Push pendiente:** el control de permisos de la sesión bloqueó `git push`; los commits de cada fase están en local en `fable-dev`.
 - Visto en R, por resolver: `catalog:get-mixes` devuelve 404 (`/userRecommendations/me/relationships/myMixes`); la cuenta es de país `DO` y el catálogo usa `countryCode=US`; teclas multimedia del SO (ahora las atiende la página de TIDAL, que es la que suena); el paquete `@tidal-music/*` se desinstala en el Cierre.
 - Validación en Windows 11 (fuera del alcance de esta sesión).
 - Prueba del control remoto con un teléfono real (y puerto 47836 en firewalld si hace falta).

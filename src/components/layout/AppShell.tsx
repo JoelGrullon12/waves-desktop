@@ -4,6 +4,7 @@ import { Outlet } from "react-router";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PlayerBar } from "@/components/player/PlayerBar";
 import { QueuePanel } from "@/components/player/QueuePanel";
+import { AddToPlaylistsDialog } from "@/components/tracks/AddToPlaylistsDialog";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { usePlayerStore } from "@/store/playerStore";
 
@@ -47,6 +48,7 @@ export function AppShell() {
       )}
 
       <PlayerBar />
+      <AddToPlaylistsDialog />
     </div>
   );
 }

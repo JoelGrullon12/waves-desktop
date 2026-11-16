@@ -101,7 +101,6 @@ export function SongsView() {
             queueTracks={displayTracks}
             source={SONGS_SOURCE}
             showLikeButton={false}
-            allowRemoveFromLibrary
           />
 
           {isFetchingNextPage && (

@@ -49,6 +49,17 @@ declare global {
       getAlbumDetail: (albumId: string) => Promise<AlbumDetail>;
       getPlaylistDetail: (playlistId: string) => Promise<PlaylistDetail>;
       getMixDetail: (mixType: string, mixId: string) => Promise<MixSummary>;
+      // Writes to the user's TIDAL library.
+      addTracksToLikes: (trackIds: string[]) => Promise<void>;
+      removeTracksFromLikes: (trackIds: string[]) => Promise<void>;
+      addTracksToPlaylist: (playlistId: string, trackIds: string[]) => Promise<void>;
+      createPlaylist: (name: string) => Promise<PlaylistSummary>;
+      deletePlaylist: (playlistId: string) => Promise<void>;
+      // Local settings and the saved play queue (SQLite).
+      getPreferences: () => Promise<Record<string, string>>;
+      setPreference: (key: string, value: string) => Promise<void>;
+      saveQueue: (trackIds: string[]) => Promise<void>;
+      loadQueue: () => Promise<string[]>;
       // Playback engine (TIDAL's web player in a hidden window).
       playerPlay: (trackId: string) => Promise<EnginePlayResult>;
       playerSetNext: (trackId: string | null) => Promise<boolean>;

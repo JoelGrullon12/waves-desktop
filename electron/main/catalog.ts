@@ -5,6 +5,7 @@ import {
   optionalCursor,
   requireCollectionName,
   requireMixRelationship,
+  requirePlaylistName,
   requireResourceId,
   requireResourceIdList,
   requireSearchQuery,
@@ -110,17 +111,48 @@ function httpStatus(error: unknown): number | null {
 
 const MAX_RATE_LIMIT_RETRIES = 4;
 
-async function fetchJson(url: string): Promise<unknown> {
+// What reaches the renderer (and the terminal) when TIDAL rejects a request:
+// the status and TIDAL's own explanation instead of a dump of the whole HTTP
+// exchange, which also contained the access token.
+export class TidalApiError extends Error {
+  // Read by httpStatus(), so callers can still branch on the status.
+  readonly response: { status: number };
+
+  constructor(status: number, method: string, url: string, detail: string | null) {
+    const path = new URL(url).pathname.replace("/v2", "");
+    super(`TIDAL API ${method} ${path} failed with HTTP ${status}${detail ? `: ${detail}` : ""}`);
+    this.name = "TidalApiError";
+    this.response = { status };
+  }
+}
+
+function apiErrorDetail(error: unknown): string | null {
+  const data = (error as { response?: { data?: unknown } }).response?.data;
+  const errors = (data as { errors?: Array<{ detail?: unknown; code?: unknown }> } | undefined)
+    ?.errors;
+  const first = Array.isArray(errors) ? errors[0] : undefined;
+  if (typeof first?.detail === "string") return first.detail;
+  if (typeof first?.code === "string") return first.code;
+  return null;
+}
+
+type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+async function requestJson(method: HttpMethod, url: string, body?: unknown): Promise<unknown> {
   const accessToken = await getValidAccessToken();
   if (!accessToken) throw new Error("Not authenticated: no valid TIDAL access token.");
 
   for (let attempt = 0; ; attempt++) {
     try {
-      const response = await axios.get(url, {
+      const response = await axios.request({
+        method,
+        url,
+        data: body,
         timeout: HTTP_TIMEOUT_MS,
         headers: {
           Accept: JSON_API_MEDIA_TYPE,
           Authorization: `Bearer ${accessToken}`,
+          ...(body === undefined ? {} : { "Content-Type": JSON_API_MEDIA_TYPE }),
         },
       });
       return response.data;
@@ -142,9 +174,16 @@ async function fetchJson(url: string): Promise<unknown> {
         await sleep(delayMilliseconds);
         continue;
       }
-      throw error;
+      if (status !== null) throw new TidalApiError(status, method, url, apiErrorDetail(error));
+      throw new Error(
+        `TIDAL API ${method} request failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
+}
+
+function fetchJson(url: string): Promise<unknown> {
+  return requestJson("GET", url);
 }
 
 // URLSearchParams.set() replaces every existing value with the same name, so
@@ -548,9 +587,15 @@ export async function getMixes(
   let cursor: string | null = null;
   for (;;) {
     if (cursor) await sleep(COLLECTION_BASE_PACING_MS);
-    const document = (await fetchJson(
-      buildMixesUrl(relationship, cursor),
-    )) as CollectionItemsDocument;
+    let document: CollectionItemsDocument;
+    try {
+      document = (await fetchJson(buildMixesUrl(relationship, cursor))) as CollectionItemsDocument;
+    } catch (error) {
+      // TIDAL answers 404 (not an empty list) for an account that has no mixes
+      // of this kind yet.
+      if (httpStatus(error) === 404) break;
+      throw error;
+    }
     identifiers.push(...document.data);
     const next = nextCursor(document);
     if (document.data.length === 0 || !next || next === cursor) break;
@@ -684,7 +729,84 @@ export async function getMixTracksPage(mixType: string, mixId: string, cursor: s
   return { tracks, nextCursor: nextPageCursor };
 }
 
+// --- Writes to the user's library ----------------------------------------------
+
+const WRITE_PACING_MS = 200;
+
+function trackIdentifiers(trackIds: string[]): { data: ResourceIdentifier[] } {
+  return { data: trackIds.map((id) => ({ id, type: "tracks" })) };
+}
+
+function buildLikedTracksWriteUrl(): string {
+  const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/userCollectionTracks/me/relationships/items`);
+  itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  return itemsUrl.toString();
+}
+
+export async function addTracksToLikes(trackIds: string[]): Promise<void> {
+  for (let i = 0; i < trackIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(WRITE_PACING_MS);
+    const batch = trackIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    await requestJson("POST", buildLikedTracksWriteUrl(), trackIdentifiers(batch));
+  }
+}
+
+export async function removeTracksFromLikes(trackIds: string[]): Promise<void> {
+  for (let i = 0; i < trackIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(WRITE_PACING_MS);
+    const batch = trackIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    await requestJson("DELETE", buildLikedTracksWriteUrl(), trackIdentifiers(batch));
+  }
+}
+
+function buildPlaylistItemsWriteUrl(playlistId: string): string {
+  const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/playlists/${playlistId}/relationships/items`);
+  itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  return itemsUrl.toString();
+}
+
+// Appends the tracks at the end of the playlist.
+export async function addTracksToPlaylist(playlistId: string, trackIds: string[]): Promise<void> {
+  for (let i = 0; i < trackIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(WRITE_PACING_MS);
+    const batch = trackIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    await requestJson("POST", buildPlaylistItemsWriteUrl(playlistId), trackIdentifiers(batch));
+  }
+}
+
+export async function createPlaylist(name: string): Promise<PlaylistSummary> {
+  const playlistsUrl = new URL(`${TIDAL_CATALOG_BASE}/playlists`);
+  playlistsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  const document = (await requestJson("POST", playlistsUrl.toString(), {
+    data: { type: "playlists", attributes: { name, accessType: "UNLISTED" } },
+  })) as SingleResourceDocument;
+  // A freshly created playlist has no artwork yet, so nothing is included.
+  return playlistSummaryFromResource(document.data, indexResources(document.included ?? []));
+}
+
+export async function deletePlaylist(playlistId: string): Promise<void> {
+  await requestJson("DELETE", `${TIDAL_CATALOG_BASE}/playlists/${playlistId}`);
+}
+
 export function registerCatalogHandlers(): void {
+  handleTrusted("catalog:add-tracks-to-likes", (_event, trackIds) =>
+    addTracksToLikes(requireResourceIdList(trackIds, "track ids")),
+  );
+  handleTrusted("catalog:remove-tracks-from-likes", (_event, trackIds) =>
+    removeTracksFromLikes(requireResourceIdList(trackIds, "track ids")),
+  );
+  handleTrusted("catalog:add-tracks-to-playlist", (_event, playlistId, trackIds) =>
+    addTracksToPlaylist(
+      requireResourceId(playlistId, "playlist id"),
+      requireResourceIdList(trackIds, "track ids"),
+    ),
+  );
+  handleTrusted("catalog:create-playlist", (_event, name) =>
+    createPlaylist(requirePlaylistName(name)),
+  );
+  handleTrusted("catalog:delete-playlist", (_event, playlistId) =>
+    deletePlaylist(requireResourceId(playlistId, "playlist id")),
+  );
   handleTrusted("catalog:search-tracks", (_event, query) => searchTracks(requireSearchQuery(query)));
   handleTrusted("catalog:get-album-tracks-page", (_event, albumId, cursor) =>
     getAlbumTracksPage(requireResourceId(albumId, "album id"), optionalCursor(cursor)),
