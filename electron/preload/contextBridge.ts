@@ -85,6 +85,17 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("remote:command", forward);
   },
 
+  getCacheStatus: () => ipcRenderer.invoke("cache:get-status"),
+  setCacheEnabled: (isEnabled: boolean) => ipcRenderer.invoke("cache:set-enabled", isEnabled),
+  refreshCache: () => ipcRenderer.invoke("cache:refresh"),
+  searchCache: (query: string) => ipcRenderer.invoke("cache:search", query),
+  getCacheMemberships: (trackIds: string[]) => ipcRenderer.invoke("cache:get-memberships", trackIds),
+  onCacheStatus: (listener: (status: unknown) => void) => {
+    const forward = (_event: IpcRendererEvent, status: unknown) => listener(status);
+    ipcRenderer.on("cache:status", forward);
+    return () => ipcRenderer.removeListener("cache:status", forward);
+  },
+
   // Only answered when the app runs with WAVES_DEBUG_API=1 (see tidalApiClient.ts).
   debugApiGet: (path: string) => ipcRenderer.invoke("debug:api-get", path),
 

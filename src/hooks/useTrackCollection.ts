@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useTrackEnrichment } from "@/hooks/useTrackEnrichment";
+import { needsEnrichment, useTrackEnrichment } from "@/hooks/useTrackEnrichment";
 import type { Result } from "@/services/tidalCatalogService";
 import { usePlayerStore } from "@/store/playerStore";
 import type { PlaybackSource } from "@/store/queueStore";
@@ -154,7 +154,9 @@ export function useTrackCollection({
     if (!enrich) return;
     for (;;) {
       const enriched = useSongsStore.getState().enrichedById;
-      const pending = slimTracksRef.current.filter((track) => !enriched.has(track.id));
+      const pending = slimTracksRef.current.filter(
+        (track) => needsEnrichment(track) && !enriched.has(track.id),
+      );
       if (pending.length === 0) return;
       await sleep(PREPARE_POLL_MS);
     }

@@ -7,6 +7,7 @@ import { QueuePanel } from "@/components/player/QueuePanel";
 import { AddToPlaylistsDialog } from "@/components/tracks/AddToPlaylistsDialog";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { useRemoteControlBridge } from "@/hooks/useRemoteControlBridge";
+import { useCacheStore } from "@/store/cacheStore";
 import { usePlayerStore } from "@/store/playerStore";
 
 export function AppShell() {
@@ -19,6 +20,8 @@ export function AppShell() {
   useEffect(() => {
     initPlayer();
   }, [initPlayer]);
+  const connectCache = useCacheStore((state) => state.connect);
+  useEffect(() => connectCache(), [connectCache]);
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">

@@ -14,7 +14,7 @@ Pruebas reales: app lanzada con puerto de depuración y manejada por CDP (`scrip
 - [x] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
 - [x] **7 — Favorites:** playlist virtual `/favorites` (top N en ventana de días, configurable).
 - [x] **6 — Control remoto:** `remoteControl.ts` (`node:http` + `ws`, token de emparejamiento), página remota, QR en Ajustes (`qrcode-generator`).
-- [ ] **8 — Cache de metadata:** tablas `cached_*`, `metadataCache.ts`, interruptor global, refresco en segundo plano, búsqueda en colección con conteo y playlists.
+- [x] **8 — Cache de metadata:** tablas `cached_*`, `metadataCache.ts`, interruptor global, refresco en segundo plano, búsqueda en colección con conteo y playlists.
 - [ ] **Cierre:** decidir SDK, docs (`AGENTS.md`, `ROADMAP.md`, `README.md`, `.env.example`), `npm run package:linux`, archivar esta sesión.
 
 ## Preguntas abiertas
@@ -50,6 +50,8 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
 
 - **Fase 6 (2026-11-16):** `remoteControl.ts` (servidor `node:http` + `ws` en `REMOTE_CONTROL_WEBSOCKET_PORT`, por defecto 47836; apagado hasta activarlo en Ajustes), `remoteControlPage.ts` (página autocontenida para el móvil), `remoteProtocol.ts` (validación de comandos y del estado, token comparado en tiempo constante; tests), IPC `remote:*`, `useRemoteControlBridge` (ejecuta los comandos y publica pista/estado/volumen al cambiar y la posición cada 5 s), sección "Phone remote" en Ajustes con QR (`qrcode-generator`, dibujado como SVG) y "Make a new code" (invalida los móviles emparejados).
   - Probado con un cliente que hace de teléfono (`.tmp/remote-client.mjs`): página 200 solo con el token (403 sin él o con uno falso, 404 en otras rutas, WebSocket rechazado sin token), play / volumen / siguiente / anterior / seek / pausa actúan sobre el reproductor real y el estado vuelve por `state_sync`; mensajes basura ignorados. **Falta** probarlo con un teléfono real (y abrir el puerto en firewalld si lo bloquea).
+- **Fase 8 (2026-11-16):** copia local de la biblioteca (`cached_tracks`, `cached_collections`, `cached_collection_items`; `metadataCacheRepository.ts` + `metadataCache.ts`). Interruptor en Ajustes ("Local library copy"), apagado por defecto; al encender y en cada arranque copia me gusta + todas las playlists en segundo plano. Con la copia lista: me gusta y playlists se sirven sin pedir a TIDAL, la búsqueda en "My collection" cubre me gusta + playlists y muestra reproducciones y playlists de cada pista, y el diálogo de playlists marca "Already added". Like/unlike, añadir a playlist, crear y borrar playlist actualizan la copia. Probado en la app real: 2275 pistas, 52 playlists, 1542 me gusta; búsqueda en ~10 ms.
+- **Límite nuevo de TIDAL:** `GET /tracks?filter[id]` acepta como mucho 20 ids (antes 50); `MAX_TRACKS_PER_BATCH = 20`.
 
 ## Decisiones (y por que)
 - **Motor web en vez del SDK (2026-11-15):** el CDN solo sirve audio a `tidal.com`; el SDK queda como respaldo y se elimina al cierre si no hace falta.

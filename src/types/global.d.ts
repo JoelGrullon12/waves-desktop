@@ -1,10 +1,13 @@
+import type { CachedSearchResult } from "@/types/track";
 import type {
   EnginePlayResult,
   EngineSnapshot,
   PlayedTrack,
+  MetadataCacheStatus,
   RemoteCommand,
   RemoteControlInfo,
   RemoteState,
+  TrackCollectionMembership,
   SyncStatus,
 } from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
@@ -96,6 +99,13 @@ declare global {
       regenerateRemoteControlToken: () => Promise<RemoteControlInfo>;
       publishRemoteState: (state: RemoteState) => Promise<void>;
       onRemoteCommand: (listener: (command: RemoteCommand) => void) => () => void;
+      // Local copy of the library (liked songs and playlists), off by default.
+      getCacheStatus: () => Promise<MetadataCacheStatus>;
+      setCacheEnabled: (isEnabled: boolean) => Promise<MetadataCacheStatus>;
+      refreshCache: () => Promise<MetadataCacheStatus>;
+      searchCache: (query: string) => Promise<CachedSearchResult[]>;
+      getCacheMemberships: (trackIds: string[]) => Promise<Record<string, TrackCollectionMembership>>;
+      onCacheStatus: (listener: (status: MetadataCacheStatus) => void) => () => void;
       // Playback engine (TIDAL's web player in a hidden window).
       playerPlay: (trackId: string) => Promise<EnginePlayResult>;
       playerSetNext: (trackId: string | null) => Promise<boolean>;

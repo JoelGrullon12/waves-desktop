@@ -17,6 +17,29 @@ export const DATABASE_SCHEMA = `
     track_id    TEXT NOT NULL,
     added_at    TEXT NOT NULL
   );
+
+  -- Local copy of the library's reference data (see metadataCacheRepository.ts).
+  CREATE TABLE IF NOT EXISTS cached_tracks (
+    track_id  TEXT PRIMARY KEY,
+    payload   TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS cached_collections (
+    collection_id  TEXT PRIMARY KEY,
+    kind           TEXT NOT NULL,
+    title          TEXT NOT NULL,
+    refreshed_at   TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS cached_collection_items (
+    collection_id  TEXT NOT NULL,
+    position       INTEGER NOT NULL,
+    track_id       TEXT NOT NULL,
+    PRIMARY KEY (collection_id, position)
+  );
+
+  CREATE INDEX IF NOT EXISTS cached_collection_items_by_track
+    ON cached_collection_items (track_id);
 `;
 
 interface MigratableDatabase {

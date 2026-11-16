@@ -86,6 +86,11 @@ export function requirePlaylistName(value: unknown): string {
 const PREFERENCE_KEY_PATTERN = /^[a-z][A-Za-z0-9.]{0,63}$/;
 const MAX_PREFERENCE_VALUE_LENGTH = 4096;
 
+export function requireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw invalidArgument(label);
+  return value;
+}
+
 export function requirePreferenceKey(value: unknown): string {
   if (typeof value !== "string" || !PREFERENCE_KEY_PATTERN.test(value)) {
     throw invalidArgument("preference key");

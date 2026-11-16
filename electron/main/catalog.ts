@@ -305,7 +305,9 @@ export function getPlaylistTracksPage(
 // its title but the `coverArt` relationship only appears when requested.
 // Fetching the canonical full tracks for the same ids fills artwork. Requests
 // are chunked and paced to respect the edge rate limit.
-const MAX_TRACKS_PER_BATCH = 50;
+// TIDAL answers HTTP 400 ("Filter accepts at most 20 values") above this;
+// verified 2026-11-16. It used to accept 50.
+const MAX_TRACKS_PER_BATCH = 20;
 const TRACKS_BATCH_PACING_MS = 200;
 
 function buildTracksByIdsUrl(trackIds: string[]): string {
@@ -732,35 +734,74 @@ export async function deletePlaylist(playlistId: string): Promise<void> {
   await requestJson("DELETE", `${TIDAL_CATALOG_BASE}/playlists/${playlistId}`);
 }
 
+// What the local copy of the library (metadataCache.ts) plugs in here: whole
+// lists served without a request, and news of every change the app makes.
+export type LibraryChange =
+  | { type: "likes-added"; trackIds: string[] }
+  | { type: "likes-removed"; trackIds: string[] }
+  | { type: "playlist-tracks-added"; playlistId: string; trackIds: string[] }
+  | { type: "playlist-created"; playlistId: string; title: string }
+  | { type: "playlist-deleted"; playlistId: string };
+
+export interface LibraryHooks {
+  cachedTracks: (collectionId: string) => Track[] | null;
+  onChange: (change: LibraryChange) => void;
+}
+
+const LIKED_COLLECTION_ID = "liked";
+let libraryHooks: LibraryHooks | null = null;
+
+export function setLibraryHooks(hooks: LibraryHooks): void {
+  libraryHooks = hooks;
+}
+
+// The first page of a cached list is the whole list.
+function cachedFirstPage(collectionId: string, cursor: string | null): TrackPage | null {
+  if (cursor) return null;
+  const tracks = libraryHooks?.cachedTracks(collectionId) ?? null;
+  return tracks ? { tracks, nextCursor: null } : null;
+}
+
 export function registerCatalogHandlers(): void {
-  handleTrusted("catalog:add-tracks-to-likes", (_event, trackIds) =>
-    addTracksToLikes(requireResourceIdList(trackIds, "track ids")),
-  );
-  handleTrusted("catalog:remove-tracks-from-likes", (_event, trackIds) =>
-    removeTracksFromLikes(requireResourceIdList(trackIds, "track ids")),
-  );
-  handleTrusted("catalog:add-tracks-to-playlist", (_event, playlistId, trackIds) =>
-    addTracksToPlaylist(
-      requireResourceId(playlistId, "playlist id"),
-      requireResourceIdList(trackIds, "track ids"),
-    ),
-  );
-  handleTrusted("catalog:create-playlist", (_event, name) =>
-    createPlaylist(requirePlaylistName(name)),
-  );
-  handleTrusted("catalog:delete-playlist", (_event, playlistId) =>
-    deletePlaylist(requireResourceId(playlistId, "playlist id")),
-  );
+  handleTrusted("catalog:add-tracks-to-likes", async (_event, rawTrackIds) => {
+    const trackIds = requireResourceIdList(rawTrackIds, "track ids");
+    await addTracksToLikes(trackIds);
+    libraryHooks?.onChange({ type: "likes-added", trackIds });
+  });
+  handleTrusted("catalog:remove-tracks-from-likes", async (_event, rawTrackIds) => {
+    const trackIds = requireResourceIdList(rawTrackIds, "track ids");
+    await removeTracksFromLikes(trackIds);
+    libraryHooks?.onChange({ type: "likes-removed", trackIds });
+  });
+  handleTrusted("catalog:add-tracks-to-playlist", async (_event, rawPlaylistId, rawTrackIds) => {
+    const playlistId = requireResourceId(rawPlaylistId, "playlist id");
+    const trackIds = requireResourceIdList(rawTrackIds, "track ids");
+    await addTracksToPlaylist(playlistId, trackIds);
+    libraryHooks?.onChange({ type: "playlist-tracks-added", playlistId, trackIds });
+  });
+  handleTrusted("catalog:create-playlist", async (_event, name) => {
+    const playlist = await createPlaylist(requirePlaylistName(name));
+    libraryHooks?.onChange({ type: "playlist-created", playlistId: playlist.id, title: playlist.title });
+    return playlist;
+  });
+  handleTrusted("catalog:delete-playlist", async (_event, rawPlaylistId) => {
+    const playlistId = requireResourceId(rawPlaylistId, "playlist id");
+    await deletePlaylist(playlistId);
+    libraryHooks?.onChange({ type: "playlist-deleted", playlistId });
+  });
   handleTrusted("catalog:search-tracks", (_event, query) => searchTracks(requireSearchQuery(query)));
   handleTrusted("catalog:get-album-tracks-page", (_event, albumId, cursor) =>
     getAlbumTracksPage(requireResourceId(albumId, "album id"), optionalCursor(cursor)),
   );
-  handleTrusted("catalog:get-playlist-tracks-page", (_event, playlistId, cursor) =>
-    getPlaylistTracksPage(requireResourceId(playlistId, "playlist id"), optionalCursor(cursor)),
-  );
-  handleTrusted("catalog:get-favorite-tracks-page", (_event, cursor) =>
-    getLikedTracksPage(optionalCursor(cursor)),
-  );
+  handleTrusted("catalog:get-playlist-tracks-page", (_event, rawPlaylistId, rawCursor) => {
+    const playlistId = requireResourceId(rawPlaylistId, "playlist id");
+    const cursor = optionalCursor(rawCursor);
+    return cachedFirstPage(playlistId, cursor) ?? getPlaylistTracksPage(playlistId, cursor);
+  });
+  handleTrusted("catalog:get-favorite-tracks-page", (_event, rawCursor) => {
+    const cursor = optionalCursor(rawCursor);
+    return cachedFirstPage(LIKED_COLLECTION_ID, cursor) ?? getLikedTracksPage(cursor);
+  });
   handleTrusted("catalog:get-liked-track-ids-page", (_event, cursor) =>
     getLikedTrackIdsPage(optionalCursor(cursor)),
   );

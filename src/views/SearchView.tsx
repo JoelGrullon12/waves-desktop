@@ -9,9 +9,10 @@ import { useMediaActions } from "@/hooks/useMediaActions";
 import { playCountLabel } from "@/hooks/useTopPlayedTracks";
 import { useTrackCollection } from "@/hooks/useTrackCollection";
 import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
-import { filterTracks } from "@/lib/textSearch";
+import { collectionMembershipLabel, filterTracks } from "@/lib/textSearch";
 import { cn } from "@/lib/utils";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
+import { useIsCacheReady } from "@/store/cacheStore";
 import { LIKED_TRACKS_QUERY_KEY } from "@/store/likedStore";
 import type { PlaybackSource } from "@/store/queueStore";
 import type { MediaSummary, SearchResults } from "@/types/media";
@@ -114,8 +115,70 @@ function TidalResults({ query }: { query: string }) {
   );
 }
 
-// Only what the user saved: for now the liked songs, which are loaded in full
-// (in the background) and filtered here, with no request per search.
+// With the local copy of the library on: liked songs and playlists, each match
+// with its play count and the playlists it is in.
+function CachedCollectionResults({ query }: { query: string }) {
+  const [visibleCount, setVisibleCount] = useState(COLLECTION_RESULTS_STEP);
+  const searchQuery = useQuery({
+    queryKey: ["cache-search", query],
+    queryFn: () => window.api.searchCache(query),
+    staleTime: 0,
+  });
+  useEffect(() => setVisibleCount(COLLECTION_RESULTS_STEP), [query]);
+  const results = useMemo(() => searchQuery.data ?? [], [searchQuery.data]);
+  const matches = useMemo(() => results.map((result) => result.track), [results]);
+  const visibleResults = useMemo(() => results.slice(0, visibleCount), [results, visibleCount]);
+  const visibleIds = useMemo(() => visibleResults.map((result) => result.track.id), [visibleResults]);
+  const playCountsQuery = useQuery({
+    queryKey: ["play-counts", visibleIds],
+    queryFn: () => window.api.getPlayCounts(visibleIds),
+    enabled: visibleIds.length > 0,
+    staleTime: 0,
+  });
+  const details = useMemo(
+    () =>
+      new Map(
+        visibleResults.map((result) => [
+          result.track.id,
+          [
+            playCountLabel(playCountsQuery.data?.[result.track.id] ?? 0),
+            collectionMembershipLabel(result.isLiked, result.playlists.map((playlist) => playlist.title)),
+          ].join(" · "),
+        ]),
+      ),
+    [visibleResults, playCountsQuery.data],
+  );
+
+  if (searchQuery.isPending) return <LoadingRow />;
+  return (
+    <section>
+      <p className="mb-3 text-sm text-muted-foreground" data-testid="collection-search-summary">
+        {matches.length} {matches.length === 1 ? "match" : "matches"} in your liked songs and
+        playlists
+      </p>
+      {matches.length > 0 && (
+        <TrackList
+          tracks={visibleResults.map((result) => result.track)}
+          queueTracks={matches}
+          source={COLLECTION_SOURCE}
+          detailByTrackId={details}
+        />
+      )}
+      {matches.length > visibleCount && (
+        <button
+          type="button"
+          className="mt-3 text-sm text-primary underline-offset-4 hover:underline"
+          onClick={() => setVisibleCount((count) => count + COLLECTION_RESULTS_STEP)}
+        >
+          Show more ({matches.length - visibleCount} left)
+        </button>
+      )}
+    </section>
+  );
+}
+
+// Without the local copy: only the liked songs, which are loaded in full (in
+// the background) and filtered here, with no request per search.
 function CollectionResults({ query }: { query: string }) {
   const [visibleCount, setVisibleCount] = useState(COLLECTION_RESULTS_STEP);
   const collection = useTrackCollection({
@@ -198,6 +261,7 @@ export function SearchView() {
   }, [query]);
 
   const searchEnabled = debouncedQuery.length > 0;
+  const isCacheReady = useIsCacheReady();
 
   return (
     <div className="p-6">
@@ -249,7 +313,13 @@ export function SearchView() {
       )}
 
       {searchEnabled && scope === "tidal" && <TidalResults query={debouncedQuery} />}
-      {searchEnabled && scope === "collection" && <CollectionResults query={debouncedQuery} />}
+      {searchEnabled &&
+        scope === "collection" &&
+        (isCacheReady ? (
+          <CachedCollectionResults query={debouncedQuery} />
+        ) : (
+          <CollectionResults query={debouncedQuery} />
+        ))}
     </div>
   );
 }

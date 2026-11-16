@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import type { ReactNode } from "react";
+import { LibraryCacheSection } from "@/components/settings/LibraryCacheSection";
 import { RemoteControlSection } from "@/components/settings/RemoteControlSection";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/hooks/useLogout";
@@ -283,6 +284,8 @@ export function SettingsView() {
         <RemoteControlSection />
 
         <CloudSyncSection />
+
+        <LibraryCacheSection />
 
         <SettingsSection
           title="Playback session"

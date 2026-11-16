@@ -4,6 +4,7 @@ import { registerAuthHandlers } from "./auth";
 import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
 import { registerLibraryHandlers } from "./libraryCatalog";
+import { CACHE_STATUS_CHANNEL, getMetadataCache, registerMetadataCacheHandlers } from "./metadataCache";
 import { registerApiExplorer } from "./tidalApiClient";
 import { registerStatsHandlers, setPlayCountedListener } from "./playCountRepository";
 import { registerPreferencesHandlers } from "./preferencesRepository";
@@ -85,7 +86,11 @@ async function createWindow(): Promise<void> {
   getRemoteControl().onCommand((command) =>
     sendToRenderer(mainWindow, REMOTE_COMMAND_CHANNEL, command),
   );
+  const stopForwardingCacheStatus = getMetadataCache().onStatus((status) => {
+    sendToRenderer(mainWindow, CACHE_STATUS_CHANNEL, status);
+  });
   mainWindow.on("closed", () => {
+    stopForwardingCacheStatus();
     void getRemoteControl().stop();
     stopForwardingPlayerState();
     stopForwardingMediaKeys();
@@ -135,6 +140,7 @@ app.whenReady().then(async () => {
   setPlayCountedListener(pushPlayedTrack);
   void startTursoSync();
   registerRemoteControlHandlers();
+  registerMetadataCacheHandlers();
   void getRemoteControl().restore();
   setWebSessionListener((isConnected) => {
     if (isConnected) tidalWebPlayer.warmUp();
@@ -142,6 +148,7 @@ app.whenReady().then(async () => {
   });
   await createWindow();
   tidalWebPlayer.warmUp();
+  void getMetadataCache().refresh();
 });
 
 app.on("window-all-closed", () => {

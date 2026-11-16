@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
+import { useIsCacheReady } from "@/store/cacheStore";
 import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistDialogStore } from "@/store/playlistDialogStore";
 import type { PlaylistSummary } from "@/types/media";
@@ -37,6 +38,26 @@ export function AddToPlaylistsDialog() {
     // playlist created a moment ago (here or in another TIDAL app) is listed.
     staleTime: 0,
   });
+
+  // Playlists that already hold every one of the tracks, known only with the
+  // local copy of the library. They are shown ticked and can not be picked,
+  // so a track is not added twice by accident.
+  const isCacheReady = useIsCacheReady();
+  const trackIdsKey = useMemo(() => (tracks ?? []).map((track) => track.id), [tracks]);
+  const membershipsQuery = useQuery({
+    queryKey: ["cache-memberships", trackIdsKey],
+    queryFn: () => window.api.getCacheMemberships(trackIdsKey),
+    enabled: isOpen && isCacheReady && trackIdsKey.length > 0,
+    staleTime: 0,
+  });
+  const containingIds = useMemo(() => {
+    const memberships = Object.values(membershipsQuery.data ?? {});
+    if (memberships.length === 0) return new Set<string>();
+    const [first, ...rest] = memberships.map(
+      (membership) => new Set(membership.playlists.map((playlist) => playlist.id)),
+    );
+    return new Set([...first].filter((playlistId) => rest.every((ids) => ids.has(playlistId))));
+  }, [membershipsQuery.data]);
 
   // Every opening starts clean: nothing ticked, no leftover errors.
   useEffect(() => {
@@ -158,14 +179,14 @@ export function AddToPlaylistsDialog() {
               >
                 <input
                   type="checkbox"
-                  checked={selectedIds.has(playlist.id)}
+                  checked={selectedIds.has(playlist.id) || containingIds.has(playlist.id)}
                   onChange={() => togglePlaylist(playlist.id)}
-                  disabled={isAdding}
+                  disabled={isAdding || containingIds.has(playlist.id)}
                   className="size-4 accent-primary"
                 />
                 <span className="min-w-0 flex-1 truncate">{playlist.title}</span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {playlist.numberOfItems}
+                  {containingIds.has(playlist.id) ? "Already added" : playlist.numberOfItems}
                 </span>
               </label>
             ))}

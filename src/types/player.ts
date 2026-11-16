@@ -91,3 +91,25 @@ export interface RemoteControlInfo {
   connectedClients: number;
   error: string | null;
 }
+
+// Local copy of the library's reference data (liked songs and playlists).
+export interface MetadataCacheStatus {
+  isEnabled: boolean;
+  isRefreshing: boolean;
+  // What the running refresh is copying; null when idle.
+  progress: string | null;
+  error: string | null;
+  trackCount: number;
+  playlistCount: number;
+  likedTrackCount: number;
+  refreshedAt: string | null;
+}
+
+export interface PlaylistReference {
+  id: string;
+  title: string;
+}
+
+export interface TrackCollectionMembership {
+  playlists: PlaylistReference[];
+}

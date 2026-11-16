@@ -9,6 +9,11 @@ import type { Track } from "@/types/track";
 // enrichment is already cached merged in.
 const ENRICH_BATCH_SIZE = 50;
 
+// Tracks served from the local copy of the library already carry everything.
+export function needsEnrichment(track: Track): boolean {
+  return !track.album?.cover;
+}
+
 export function useTrackEnrichment(tracks: Track[], enabled = true): Track[] {
   const enrichedById = useSongsStore((state) => state.enrichedById);
   const mergeEnrichedBatch = useSongsStore((state) => state.mergeEnrichedBatch);
@@ -18,7 +23,8 @@ export function useTrackEnrichment(tracks: Track[], enabled = true): Track[] {
     if (!enabled) return;
     const inFlight = inFlightBatchRef.current;
     const pending = tracks.filter(
-      (track) => !enrichedById.has(track.id) && !inFlight.has(track.id),
+      (track) =>
+        needsEnrichment(track) && !enrichedById.has(track.id) && !inFlight.has(track.id),
     );
     if (pending.length === 0) return;
 

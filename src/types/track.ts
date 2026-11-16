@@ -41,3 +41,10 @@ export interface LikedTrackIdsPage {
   ids: string[];
   nextCursor: string | null;
 }
+// A match of the search inside the local copy of the library.
+export interface CachedSearchResult {
+  track: Track;
+  isLiked: boolean;
+  // The user's playlists that contain the track.
+  playlists: Array<{ id: string; title: string }>;
+}
