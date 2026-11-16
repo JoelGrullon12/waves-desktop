@@ -4,7 +4,11 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/hooks/useLogout";
 import {
+  DEFAULT_FAVORITES_LIMIT,
+  DEFAULT_FAVORITES_WINDOW_DAYS,
   DEFAULT_PLAY_THRESHOLD_SECONDS,
+  MAX_FAVORITES_LIMIT,
+  MAX_FAVORITES_WINDOW_DAYS,
   MAX_PLAY_THRESHOLD_SECONDS,
   MIN_PLAY_THRESHOLD_SECONDS,
   PREFERENCE_KEYS,
@@ -85,6 +89,40 @@ export function ChoiceGroup<Choice extends string>({
   );
 }
 
+// A whole number inside a range; out-of-range input is ignored, not clamped,
+// so a half-typed value never overwrites the setting.
+function NumberSetting({
+  label,
+  value,
+  minimum,
+  maximum,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  minimum: number;
+  maximum: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      {label}
+      <input
+        type="number"
+        min={minimum}
+        max={maximum}
+        value={value}
+        aria-label={label}
+        onChange={(event) => {
+          const next = Math.round(Number(event.target.value));
+          if (event.target.value !== "" && next >= minimum && next <= maximum) onChange(next);
+        }}
+        className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+      />
+    </label>
+  );
+}
+
 const SYNC_STATE_LABELS: Record<SyncStatus["state"], string> = {
   disabled: "Not set up",
   idle: "Up to date",
@@ -154,6 +192,20 @@ export function SettingsView() {
   const handleLogout = useLogout();
   const theme = readChoicePreference(values, PREFERENCE_KEYS.theme, isThemeChoice, "system");
   const smartShuffle = readBooleanPreference(values, PREFERENCE_KEYS.smartShuffle, true);
+  const favoritesLimit = readNumberPreference(
+    values,
+    PREFERENCE_KEYS.favoritesLimit,
+    DEFAULT_FAVORITES_LIMIT,
+    1,
+    MAX_FAVORITES_LIMIT,
+  );
+  const favoritesWindowDays = readNumberPreference(
+    values,
+    PREFERENCE_KEYS.favoritesWindowDays,
+    DEFAULT_FAVORITES_WINDOW_DAYS,
+    1,
+    MAX_FAVORITES_WINDOW_DAYS,
+  );
   const playThreshold = readNumberPreference(
     values,
     PREFERENCE_KEYS.playThresholdSeconds,
@@ -196,23 +248,35 @@ export function SettingsView() {
           title="Play counts"
           description="A track counts as played after this many seconds of listening. Skipping through a track or leaving it paused does not count."
         >
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="number"
-              min={MIN_PLAY_THRESHOLD_SECONDS}
-              max={MAX_PLAY_THRESHOLD_SECONDS}
-              value={playThreshold}
-              aria-label="Seconds before a play counts"
-              onChange={(event) => {
-                const seconds = Math.round(Number(event.target.value));
-                if (seconds >= MIN_PLAY_THRESHOLD_SECONDS && seconds <= MAX_PLAY_THRESHOLD_SECONDS) {
-                  setPreference(PREFERENCE_KEYS.playThresholdSeconds, String(seconds));
-                }
-              }}
-              className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+          <NumberSetting
+            label="Seconds of listening"
+            value={playThreshold}
+            minimum={MIN_PLAY_THRESHOLD_SECONDS}
+            maximum={MAX_PLAY_THRESHOLD_SECONDS}
+            onChange={(seconds) => setPreference(PREFERENCE_KEYS.playThresholdSeconds, String(seconds))}
+          />
+        </SettingsSection>
+
+        <SettingsSection
+          title="Favorites"
+          description="The Favorites list shows your most played tracks among those heard recently."
+        >
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <NumberSetting
+              label="Tracks in the list"
+              value={favoritesLimit}
+              minimum={1}
+              maximum={MAX_FAVORITES_LIMIT}
+              onChange={(count) => setPreference(PREFERENCE_KEYS.favoritesLimit, String(count))}
             />
-            seconds
-          </label>
+            <NumberSetting
+              label="Heard in the last (days)"
+              value={favoritesWindowDays}
+              minimum={1}
+              maximum={MAX_FAVORITES_WINDOW_DAYS}
+              onChange={(days) => setPreference(PREFERENCE_KEYS.favoritesWindowDays, String(days))}
+            />
+          </div>
         </SettingsSection>
 
         <CloudSyncSection />

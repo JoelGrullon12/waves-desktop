@@ -12,7 +12,7 @@ Pruebas reales: app lanzada con puerto de depuración y manejada por CDP (`scrip
 - [x] **3B — Navegación y biblioteca:** `ArtistView`, `LibraryView` (playlists, carpetas, álbumes, artistas), feed de lanzamientos, `SearchView` con switch TIDAL/Colección, tema claro/oscuro/sistema, Ajustes ampliados, layout adaptable.
 - [x] **4 — Smart shuffle + stats:** `baseline_count`, `playCountRepository.ts`, `smartShuffle.ts`, conteo al pasar el umbral (30 s), IPC `stats:*`, Most Listened en Home.
 - [x] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
-- [ ] **7 — Favorites:** playlist virtual `/favorites` (top N en ventana de días, configurable).
+- [x] **7 — Favorites:** playlist virtual `/favorites` (top N en ventana de días, configurable).
 - [ ] **6 — Control remoto:** `remoteControl.ts` (`node:http` + `ws`, token de emparejamiento), página remota, QR en Ajustes (`qrcode-generator`).
 - [ ] **8 — Cache de metadata:** tablas `cached_*`, `metadataCache.ts`, interruptor global, refresco en segundo plano, búsqueda en colección con conteo y playlists.
 - [ ] **Cierre:** decidir SDK, docs (`AGENTS.md`, `ROADMAP.md`, `README.md`, `.env.example`), `npm run package:linux`, archivar esta sesión.
@@ -41,6 +41,9 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
 - **Fase 5 (2026-11-15):** `tursoSync.ts` (cliente HTTP `@libsql/client/web`, sin módulo nativo), reglas puras en `playSync.ts` (por canción gana el conteo mayor y la fecha más reciente; la base no se pisa; no se suben filas 0/0), sync completo al arrancar en segundo plano + envío de cada escucha contada, pendientes si falla la red, IPC `sync:get-status` / `sync:run-now`, sección "Play count sync" en Ajustes. Sin variables `TURSO_*` queda desactivado y todo sigue local.
   - Probado: tests contra libSQL en memoria (dos "dispositivos"), y contra el Turso real con la tabla temporal `track_plays_selftest` (subida de una escucha, y arranque con base local vacía que recupera el conteo); tabla temporal borrada. La tabla real `track_plays` se creará en el primer arranque normal.
   - Las ejecuciones de prueba (`.tmp/start.sh`) llevan el sync apagado salvo `WAVES_TEST_SYNC=1`.
+
+- **Fase 7 (2026-11-15):** `FavoritesView` (`/favorites`): top N por escuchas entre lo oído en los últimos X días (50 / 30 por defecto, ajustables en Ajustes), con Play/Shuffle y conteo por canción; entrada en la barra lateral y enlace desde "Most listened". Virtual: nada se escribe en TIDAL. Comprobado en la app que la vista carga y lista con sus conteos; **falta** repetir la prueba automática de cambiar N/días desde Ajustes (el guion leyó la página antes de tiempo).
+- **Corte por límite de uso (2026-11-15):** quedan por hacer la Fase 6 (control remoto), la Fase 8 (cache de metadata + playlists por canción en la búsqueda de colección) y el Cierre (quitar `@tidal-music/*`, docs de `AGENTS.md`/`README.md`/`.env.example`, `npm run package:linux`, archivar esta sesión).
 
 ## Decisiones (y por que)
 - **Motor web en vez del SDK (2026-11-15):** el CDN solo sirve audio a `tidal.com`; el SDK queda como respaldo y se elimina al cierre si no hace falta.

@@ -8,6 +8,7 @@ import {
   PanelLeftOpen,
   Search,
   Settings,
+  Star,
   type LucideIcon,
 } from "lucide-react";
 import { NavLink } from "react-router";
@@ -20,6 +21,7 @@ const NAVIGATION: Array<{ to: string; label: string; icon: LucideIcon; end?: boo
   { to: "/", label: "Home", icon: Home, end: true },
   { to: "/search", label: "Search", icon: Search },
   { to: "/songs", label: "Songs", icon: Music },
+  { to: "/favorites", label: "Favorites", icon: Star },
   { to: "/library", label: "Library", icon: Library },
   { to: "/releases", label: "New releases", icon: Disc3 },
   { to: "/settings", label: "Settings", icon: Settings },

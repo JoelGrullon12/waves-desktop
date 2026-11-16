@@ -10,6 +10,8 @@ export const PREFERENCE_KEYS = {
   queueSource: "queue.source",
   smartShuffle: "player.smartShuffle",
   playThresholdSeconds: "stats.playThresholdSeconds",
+  favoritesLimit: "favorites.limit",
+  favoritesWindowDays: "favorites.windowDays",
   theme: "ui.theme",
   sidebarCollapsed: "ui.sidebarCollapsed",
 } as const;
@@ -71,3 +73,9 @@ export function readJsonPreference<Value>(
 export const DEFAULT_PLAY_THRESHOLD_SECONDS = 30;
 export const MIN_PLAY_THRESHOLD_SECONDS = 5;
 export const MAX_PLAY_THRESHOLD_SECONDS = 240;
+
+// Favorites: the most played tracks among those heard recently.
+export const DEFAULT_FAVORITES_LIMIT = 50;
+export const MAX_FAVORITES_LIMIT = 500;
+export const DEFAULT_FAVORITES_WINDOW_DAYS = 30;
+export const MAX_FAVORITES_WINDOW_DAYS = 3650;

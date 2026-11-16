@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { HorizontalScroll } from "@/components/media/HorizontalScroll";
 import { MediaCard } from "@/components/media/MediaCard";
 import { TrackList } from "@/components/tracks/TrackList";
@@ -102,7 +102,12 @@ function MostListened() {
   if (tracks.length === 0) return null;
   return (
     <section className="mb-8" data-testid="most-listened">
-      <h2 className="mb-2 text-lg font-bold">Most listened</h2>
+      <div className="mb-2 flex items-baseline justify-between">
+        <h2 className="text-lg font-bold">Most listened</h2>
+        <Link to="/favorites" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
+          Recent favorites
+        </Link>
+      </div>
       <TrackList tracks={tracks} source={MOST_LISTENED_SOURCE} detailByTrackId={details} />
     </section>
   );

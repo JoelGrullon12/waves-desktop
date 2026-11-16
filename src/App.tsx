@@ -6,6 +6,7 @@ import { useAppliedTheme } from "@/hooks/useAppliedTheme";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import { usePlayerStore } from "@/store/playerStore";
 import { useSessionStore } from "@/store/sessionStore";
+import { FavoritesView } from "@/views/FavoritesView";
 import { HomeView } from "@/views/HomeView";
 import { LoginView } from "@/views/LoginView";
 import { MediaDetailView } from "@/views/MediaDetailView";
@@ -79,6 +80,7 @@ function App() {
             <Route index element={<HomeView />} />
             <Route path="songs" element={<SongsView />} />
             <Route path="search" element={<SearchView />} />
+            <Route path="favorites" element={<FavoritesView />} />
             <Route path="library" element={<LibraryView />} />
             <Route path="releases" element={<ReleasesView />} />
             <Route path="artists/:artistId" element={<ArtistView />} />
