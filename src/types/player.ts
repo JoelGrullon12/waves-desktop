@@ -41,3 +41,10 @@ export type EnginePlayResult =
   // `playbackId` is the snapshot's playbackId of the playback that started.
   | { ok: true; playbackId: string | null }
   | { ok: false; reason: EnginePlayFailure };
+
+// One row of the local listening statistics.
+export interface PlayedTrack {
+  trackId: string;
+  playCount: number;
+  lastPlayedAt: string | null;
+}

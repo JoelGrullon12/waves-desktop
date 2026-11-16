@@ -10,7 +10,7 @@ Pruebas reales: app lanzada con puerto de depuración y manejada por CDP (`scrip
 - [x] **R — Motor web:** `electron/main/tidalWebPlayer.ts` (ventana oculta `tidal.com`, partición `persist:tidal-web`), IPC `player:*` + evento de estado, `playbackService`/`playerStore` sobre el motor; avance de cola al terminar cada canción.
 - [x] **3A — Reproductor + menú + likes:** shuffle/repeat persistentes (repeat: off → canción 1 vez → canción infinita → playlist), cola dinámica (play next / add to queue), escrituras v2 (like/unlike, añadir a playlists, crear playlist), `TrackContextMenu` funcional, `AddToPlaylistsDialog` (checkboxes + "Agregar"), enlaces a álbum/artista.
 - [x] **3B — Navegación y biblioteca:** `ArtistView`, `LibraryView` (playlists, carpetas, álbumes, artistas), feed de lanzamientos, `SearchView` con switch TIDAL/Colección, tema claro/oscuro/sistema, Ajustes ampliados, layout adaptable.
-- [ ] **4 — Smart shuffle + stats:** `baseline_count`, `playCountRepository.ts`, `smartShuffle.ts`, conteo al pasar el umbral (30 s), IPC `stats:*`, Most Listened en Home.
+- [x] **4 — Smart shuffle + stats:** `baseline_count`, `playCountRepository.ts`, `smartShuffle.ts`, conteo al pasar el umbral (30 s), IPC `stats:*`, Most Listened en Home.
 - [ ] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
 - [ ] **7 — Favorites:** playlist virtual `/favorites` (top N en ventana de días, configurable).
 - [ ] **6 — Control remoto:** `remoteControl.ts` (`node:http` + `ws`, token de emparejamiento), página remota, QR en Ajustes (`qrcode-generator`).
@@ -35,10 +35,14 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
   - `WAVES_DEBUG_API=1` habilita `window.api.debugApiGet(path)` para explorar la API v2 desde `driveApp.mjs` (solo desarrollo).
   - Aviso de proceso: en esta sesión un comando que combine `git push` con otras cosas es rechazado; el push va siempre en un comando aparte.
 
+- **Fase 4 (2026-11-15):** `playCountRepository.ts` (conteos, `baseline_count`, top), `smartShuffle.ts` (grupos por nivel `play_count + baseline_count`, barajado dentro de cada grupo, de menor a mayor), migración `baseline_count` (`databaseSchema.ts`), IPC `stats:*`. Renderer: `PlayCounter` (suma solo escucha real; un salto de posición o la pausa no cuentan; una vez por reproducción), umbral configurable (30 s por defecto), el shuffle usa smart por defecto con caída a aleatorio si falla, Ajustes (tipo de shuffle + umbral), "Most listened" en Home, conteo por canción en la búsqueda de colección.
+  - Probado por CDP con base de pruebas limpia (`.tmp/accept-4.js`): 2 escuchas de >5 s cuentan 2; iniciar + saltar + 3 s cuenta 0; la más escuchada sale última 20/20 y el orden varía; la cola de la UI respeta ese orden.
+
 ## Decisiones (y por que)
 - **Motor web en vez del SDK (2026-11-15):** el CDN solo sirve audio a `tidal.com`; el SDK queda como respaldo y se elimina al cierre si no hace falta.
 - **Control mixto del motor (2026-11-15):** iniciar canción navegando a `tidal.com/track/{id}` + clic en play; pausa/seek/volumen sobre el `<video>`; estado leído del `<video>`. Si TIDAL cambia un selector solo se rompe una pieza.
 - **Canción nueva en el smart shuffle (2026-11-15):** `baseline_count` = mediana al verla por primera vez; se ordena por `play_count + baseline_count`; `play_count` siempre es real (lo usan Favorites y Most Listened).
+- **Regla de la base (2026-11-15, afinada al probar):** la mediana se toma de las canciones ya conocidas **de la misma lista** que se baraja, y solo si son al menos la mitad de la lista (lista establecida con recién llegadas). Si la mayoría es nueva (primera vez que se ve la lista) todo lo nuevo entra en 0: con la mediana global, tres canciones escuchadas igualaban a 2000 sin escuchar. Una canción escuchada antes de aparecer en ninguna lista barajada entra con la mediana de toda la biblioteca.
 - **Shuffle (2026-11-15):** smart por defecto; interruptor en Ajustes para aleatorio puro.
 - **Repetir canción 1 vez (2026-11-15):** de un solo uso; tras repetir, el modo vuelve a apagado.
 - **Cache (2026-11-15):** interruptor global. Apagado: la búsqueda en colección cubre solo los likes con conteo; encendido: likes + playlists con la lista de playlists de cada canción.

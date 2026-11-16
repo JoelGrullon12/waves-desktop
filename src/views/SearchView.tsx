@@ -6,6 +6,7 @@ import { HorizontalScroll } from "@/components/media/HorizontalScroll";
 import { MediaCard } from "@/components/media/MediaCard";
 import { TrackList } from "@/components/tracks/TrackList";
 import { useMediaActions } from "@/hooks/useMediaActions";
+import { playCountLabel } from "@/hooks/useTopPlayedTracks";
 import { useTrackCollection } from "@/hooks/useTrackCollection";
 import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
 import { filterTracks } from "@/lib/textSearch";
@@ -130,6 +131,23 @@ function CollectionResults({ query }: { query: string }) {
 
   useEffect(() => setVisibleCount(COLLECTION_RESULTS_STEP), [query]);
 
+  // How many times each visible match was played, from the local statistics.
+  const visibleMatches = useMemo(() => matches.slice(0, visibleCount), [matches, visibleCount]);
+  const visibleIds = useMemo(() => visibleMatches.map((track) => track.id), [visibleMatches]);
+  const playCountsQuery = useQuery({
+    queryKey: ["play-counts", visibleIds],
+    queryFn: () => window.api.getPlayCounts(visibleIds),
+    enabled: visibleIds.length > 0,
+    staleTime: 0,
+  });
+  const details = useMemo(
+    () =>
+      new Map(
+        visibleIds.map((trackId) => [trackId, playCountLabel(playCountsQuery.data?.[trackId] ?? 0)]),
+      ),
+    [visibleIds, playCountsQuery.data],
+  );
+
   if (collection.status === "pending") return <LoadingRow />;
   if (collection.status === "error" && collection.displayTracks.length === 0) {
     return (
@@ -139,7 +157,6 @@ function CollectionResults({ query }: { query: string }) {
     );
   }
 
-  const visibleMatches = matches.slice(0, visibleCount);
   return (
     <section>
       <p className="mb-3 text-sm text-muted-foreground" data-testid="collection-search-summary">
@@ -153,6 +170,7 @@ function CollectionResults({ query }: { query: string }) {
           queueTracks={matches}
           source={COLLECTION_SOURCE}
           showLikeButton={false}
+          detailByTrackId={details}
         />
       )}
       {matches.length > visibleCount && (

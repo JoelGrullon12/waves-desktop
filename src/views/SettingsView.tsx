@@ -2,7 +2,15 @@ import { LogOut } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/hooks/useLogout";
-import { PREFERENCE_KEYS, readChoicePreference } from "@/lib/preferences";
+import {
+  DEFAULT_PLAY_THRESHOLD_SECONDS,
+  MAX_PLAY_THRESHOLD_SECONDS,
+  MIN_PLAY_THRESHOLD_SECONDS,
+  PREFERENCE_KEYS,
+  readBooleanPreference,
+  readChoicePreference,
+  readNumberPreference,
+} from "@/lib/preferences";
 import { isThemeChoice, THEME_CHOICES, type ThemeChoice } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/store/preferencesStore";
@@ -12,6 +20,12 @@ const THEME_LABELS: Record<ThemeChoice, string> = {
   system: "Same as system",
   light: "Light",
   dark: "Dark",
+};
+
+const SHUFFLE_KINDS = ["smart", "random"] as const;
+const SHUFFLE_LABELS: Record<(typeof SHUFFLE_KINDS)[number], string> = {
+  smart: "Smart (least played first)",
+  random: "Random",
 };
 
 export function SettingsSection({
@@ -79,6 +93,14 @@ export function SettingsView() {
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const handleLogout = useLogout();
   const theme = readChoicePreference(values, PREFERENCE_KEYS.theme, isThemeChoice, "system");
+  const smartShuffle = readBooleanPreference(values, PREFERENCE_KEYS.smartShuffle, true);
+  const playThreshold = readNumberPreference(
+    values,
+    PREFERENCE_KEYS.playThresholdSeconds,
+    DEFAULT_PLAY_THRESHOLD_SECONDS,
+    MIN_PLAY_THRESHOLD_SECONDS,
+    MAX_PLAY_THRESHOLD_SECONDS,
+  );
 
   return (
     <div className="max-w-3xl p-6">
@@ -95,6 +117,42 @@ export function SettingsView() {
             labels={THEME_LABELS}
             onChange={(choice) => setPreference(PREFERENCE_KEYS.theme, choice)}
           />
+        </SettingsSection>
+
+        <SettingsSection
+          title="Shuffle"
+          description="Smart shuffle plays the tracks you have heard the least first, in random order among equally played ones. Random ignores your listening history."
+        >
+          <ChoiceGroup
+            label="Shuffle kind"
+            choices={SHUFFLE_KINDS}
+            value={smartShuffle ? "smart" : "random"}
+            labels={SHUFFLE_LABELS}
+            onChange={(kind) => setPreference(PREFERENCE_KEYS.smartShuffle, String(kind === "smart"))}
+          />
+        </SettingsSection>
+
+        <SettingsSection
+          title="Play counts"
+          description="A track counts as played after this many seconds of listening. Skipping through a track or leaving it paused does not count."
+        >
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="number"
+              min={MIN_PLAY_THRESHOLD_SECONDS}
+              max={MAX_PLAY_THRESHOLD_SECONDS}
+              value={playThreshold}
+              aria-label="Seconds before a play counts"
+              onChange={(event) => {
+                const seconds = Math.round(Number(event.target.value));
+                if (seconds >= MIN_PLAY_THRESHOLD_SECONDS && seconds <= MAX_PLAY_THRESHOLD_SECONDS) {
+                  setPreference(PREFERENCE_KEYS.playThresholdSeconds, String(seconds));
+                }
+              }}
+              className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+            />
+            seconds
+          </label>
         </SettingsSection>
 
         <SettingsSection

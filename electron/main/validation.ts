@@ -100,8 +100,12 @@ export function requirePreferenceValue(value: unknown): string {
   return value;
 }
 
-export function requireResourceIdList(value: unknown, label: string): string[] {
-  if (!Array.isArray(value) || value.length > MAX_TRACK_IDS_PER_CALL) throw invalidArgument(label);
+export function requireResourceIdList(
+  value: unknown,
+  label: string,
+  maximumLength: number = MAX_TRACK_IDS_PER_CALL,
+): string[] {
+  if (!Array.isArray(value) || value.length > maximumLength) throw invalidArgument(label);
   return value.map((id) => requireResourceId(id, label));
 }
 

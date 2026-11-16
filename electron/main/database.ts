@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
-import { DATABASE_SCHEMA } from "./databaseSchema";
+import { DATABASE_SCHEMA, migrateDatabase } from "./databaseSchema";
 
 // node:sqlite (DatabaseSync) ships inside Electron's own Node runtime, so there
 // is nothing native to rebuild against the Castlabs fork's V8 ABI. It is the
@@ -22,6 +22,7 @@ export function initializeDatabase(): void {
     // Not a regular file (e.g. ":memory:") or a platform without POSIX modes.
   }
   databaseConnection.exec(DATABASE_SCHEMA);
+  migrateDatabase(databaseConnection);
 }
 
 export function getDatabase(): DatabaseSync {

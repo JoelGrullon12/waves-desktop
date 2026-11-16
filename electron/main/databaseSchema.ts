@@ -18,3 +18,22 @@ export const DATABASE_SCHEMA = `
     added_at    TEXT NOT NULL
   );
 `;
+
+interface MigratableDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): { all(): unknown[] };
+}
+
+// Changes to tables that already exist on the user's disk. Each step checks
+// whether it is needed, so running it on every start is safe.
+export function migrateDatabase(databaseConnection: MigratableDatabase): void {
+  const trackPlayColumns = databaseConnection
+    .prepare("PRAGMA table_info(track_plays)")
+    .all() as Array<{ name: string }>;
+  if (!trackPlayColumns.some((column) => column.name === "baseline_count")) {
+    // Level a track enters smart shuffle at (see playCountRepository.ts).
+    databaseConnection.exec(
+      "ALTER TABLE track_plays ADD COLUMN baseline_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+}

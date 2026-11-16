@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import { canSkipAnother, isPlayInterruption, isSkippableError } from "@/lib/playbackErrors";
+import { PlayCounter } from "@/lib/playCounter";
 import {
+  DEFAULT_PLAY_THRESHOLD_SECONDS,
+  MAX_PLAY_THRESHOLD_SECONDS,
+  MIN_PLAY_THRESHOLD_SECONDS,
   PREFERENCE_KEYS,
   readBooleanPreference,
   readChoicePreference,
@@ -79,9 +83,30 @@ interface PlayerStore {
   setQueueOpen: (open: boolean) => void;
 }
 
-// Order used when shuffle is on. A function of its own so smart shuffle can
-// replace plain random without touching the queue logic.
+// Order used when shuffle is on: smart shuffle (least played first) unless the
+// user chose plain random in Settings.
 async function shuffleTracks(tracks: Track[]): Promise<Track[]> {
+  const { values } = usePreferencesStore.getState();
+  if (!readBooleanPreference(values, PREFERENCE_KEYS.smartShuffle, true)) return shuffleCopy(tracks);
+  try {
+    // The main process knows the play counts: it returns the ids with the
+    // least played first (random within equal counts).
+    const orderedIds = await window.api.getSmartShuffleOrder(tracks.map((track) => String(track.id)));
+    // The same track can be in the list more than once.
+    const tracksById = new Map<string, Track[]>();
+    for (const track of tracks) {
+      const sameId = tracksById.get(String(track.id));
+      if (sameId) sameId.push(track);
+      else tracksById.set(String(track.id), [track]);
+    }
+    const ordered = orderedIds
+      .map((trackId) => tracksById.get(trackId)?.shift())
+      .filter((track): track is Track => track !== undefined);
+    if (ordered.length === tracks.length) return ordered;
+    logToTerminal("error", "smart shuffle returned an incomplete order, using a random one");
+  } catch (error) {
+    logToTerminal("error", `smart shuffle failed, using a random order: ${errorMessage(error)}`);
+  }
   return shuffleCopy(tracks);
 }
 
@@ -130,6 +155,7 @@ let awaitingRequestedStart = false;
 let currentTrackNeedsStart = false;
 let isRestoringQueue = false;
 let queueSaveTimer: ReturnType<typeof setTimeout> | undefined;
+const playCounter = new PlayCounter();
 const seekCoordinator = new SeekCoordinator((seconds) => playbackService.seek(seconds));
 
 function saveQueueSoon(): void {
@@ -185,6 +211,26 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     await startAt(nextIndex);
   };
 
+  // Adds one play to the current track once it has been listened to for the
+  // configured time.
+  const countPlayIfListened = (positionSeconds: number, state: PlayerStore): void => {
+    const thresholdSeconds = readNumberPreference(
+      usePreferencesStore.getState().values,
+      PREFERENCE_KEYS.playThresholdSeconds,
+      DEFAULT_PLAY_THRESHOLD_SECONDS,
+      MIN_PLAY_THRESHOLD_SECONDS,
+      MAX_PLAY_THRESHOLD_SECONDS,
+    );
+    const track = state.currentTrack;
+    if (!track || !playCounter.reportProgress(positionSeconds, state.isPlaying, thresholdSeconds)) {
+      return;
+    }
+    window.api
+      .incrementPlayCount(String(track.id))
+      .then((playCount) => logToTerminal("info", `play counted for ${track.id}: ${playCount}`))
+      .catch((error) => logToTerminal("error", `could not count the play: ${errorMessage(error)}`));
+  };
+
   const startTrack = async (track: Track): Promise<void> => {
     awaitingRequestedStart = true;
     currentTrackNeedsStart = false;
@@ -215,6 +261,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
   const createStoreClient = (): PlaybackServiceClient => ({
     onTransition: (trackId, durationSeconds) => {
       logToTerminal("info", `track started: ${trackId}`);
+      playCounter.startPlayback();
       const startedByEngine = !awaitingRequestedStart;
       awaitingRequestedStart = false;
       const index = findQueueIndex(trackId);
@@ -246,6 +293,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     onProgress: (positionSeconds, durationSeconds, audioFormat) => {
       if (seekCoordinator.isBusy || currentTrackNeedsStart) return;
       const state = get();
+      countPlayIfListened(positionSeconds, state);
       const changes: Partial<PlayerStore> = {};
       if (positionSeconds !== state.position) changes.position = positionSeconds;
       if (durationSeconds > 0 && durationSeconds !== state.duration) {

@@ -8,6 +8,8 @@ export const PREFERENCE_KEYS = {
   repeatMode: "player.repeat",
   queueCurrentIndex: "queue.currentIndex",
   queueSource: "queue.source",
+  smartShuffle: "player.smartShuffle",
+  playThresholdSeconds: "stats.playThresholdSeconds",
   theme: "ui.theme",
   sidebarCollapsed: "ui.sidebarCollapsed",
 } as const;
@@ -64,3 +66,8 @@ export function readJsonPreference<Value>(
     return null;
   }
 }
+
+// A play counts after this many seconds of real listening (industry habit).
+export const DEFAULT_PLAY_THRESHOLD_SECONDS = 30;
+export const MIN_PLAY_THRESHOLD_SECONDS = 5;
+export const MAX_PLAY_THRESHOLD_SECONDS = 240;

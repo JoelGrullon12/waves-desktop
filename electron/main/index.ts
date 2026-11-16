@@ -5,6 +5,7 @@ import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
 import { registerLibraryHandlers } from "./libraryCatalog";
 import { registerApiExplorer } from "./tidalApiClient";
+import { registerStatsHandlers } from "./playCountRepository";
 import { registerPreferencesHandlers } from "./preferencesRepository";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
@@ -30,6 +31,14 @@ function logWidevineInstall(result: WidevineInstallResult): void {
   } else if (result.status === "failed") {
     console.error(`Widevine CDM unpack failed: ${result.error}`);
   }
+}
+
+// Engine events can arrive while the window is closing or reloading, when
+// there is no page left to receive them.
+function sendToRenderer(targetWindow: BrowserWindow, channel: string, payload: unknown): void {
+  if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) return;
+  if (targetWindow.webContents.mainFrame.isDestroyed()) return;
+  targetWindow.webContents.send(channel, payload);
 }
 
 async function createWindow(): Promise<void> {
@@ -62,10 +71,10 @@ async function createWindow(): Promise<void> {
   });
 
   const stopForwardingPlayerState = tidalWebPlayer.onSnapshot((snapshot) => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send(PLAYER_STATE_CHANNEL, snapshot);
+    sendToRenderer(mainWindow, PLAYER_STATE_CHANNEL, snapshot);
   });
   const stopForwardingMediaKeys = tidalWebPlayer.onMediaKey((command) => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send(PLAYER_MEDIA_KEY_CHANNEL, command);
+    sendToRenderer(mainWindow, PLAYER_MEDIA_KEY_CHANNEL, command);
   });
   mainWindow.on("closed", () => {
     stopForwardingPlayerState();
@@ -111,6 +120,7 @@ app.whenReady().then(async () => {
   registerApiExplorer();
   initializeDatabase();
   registerPreferencesHandlers();
+  registerStatsHandlers();
   setWebSessionListener((isConnected) => {
     if (isConnected) tidalWebPlayer.warmUp();
     else tidalWebPlayer.shutDown();

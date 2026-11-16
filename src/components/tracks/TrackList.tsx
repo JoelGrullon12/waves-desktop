@@ -20,6 +20,8 @@ interface TrackListProps {
   queueTracks?: Track[];
   // The hearts are hidden in the liked-songs list, where every row is liked.
   showLikeButton?: boolean;
+  // Extra text per track shown after the artists (play count, playlists...).
+  detailByTrackId?: ReadonlyMap<string, string>;
 }
 
 interface TrackRowProps {
@@ -29,6 +31,7 @@ interface TrackRowProps {
   queueTracks?: Track[];
   source: PlaybackSource;
   showLikeButton: boolean;
+  detail?: string;
 }
 
 function TrackRow({
@@ -38,6 +41,7 @@ function TrackRow({
   queueTracks,
   source,
   showLikeButton,
+  detail,
 }: TrackRowProps) {
   const playQueue = usePlayerStore((state) => state.playQueue);
   const isCurrent = usePlayerStore((state) => state.currentTrack?.id === track.id);
@@ -108,6 +112,7 @@ function TrackRow({
             </p>
             <p className="truncate text-xs text-muted-foreground">
               <ArtistLinks artists={track.artists} />
+              {detail && <span data-testid="track-detail"> · {detail}</span>}
             </p>
           </div>
         </div>
@@ -163,6 +168,7 @@ export function TrackList({
   source,
   queueTracks,
   showLikeButton = true,
+  detailByTrackId,
 }: TrackListProps) {
   const loadLikedIds = useLikedStore((state) => state.load);
 
@@ -189,6 +195,7 @@ export function TrackList({
           queueTracks={queueTracks}
           source={source}
           showLikeButton={showLikeButton}
+          detail={detailByTrackId?.get(track.id)}
         />
       ))}
     </div>

@@ -1,4 +1,4 @@
-import type { EnginePlayResult, EngineSnapshot } from "@/types/player";
+import type { EnginePlayResult, EngineSnapshot, PlayedTrack } from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
 import type {
   AlbumDetail,
@@ -72,6 +72,13 @@ declare global {
       setPreference: (key: string, value: string) => Promise<void>;
       saveQueue: (trackIds: string[]) => Promise<void>;
       loadQueue: () => Promise<string[]>;
+      // Local listening statistics (SQLite).
+      incrementPlayCount: (trackId: string) => Promise<number>;
+      // The same ids ordered for smart shuffle: least played first, random within ties.
+      getSmartShuffleOrder: (trackIds: string[]) => Promise<string[]>;
+      getPlayCounts: (trackIds: string[]) => Promise<Record<string, number>>;
+      // `withinDays` null means all time.
+      getTopPlayed: (limit: number, withinDays: number | null) => Promise<PlayedTrack[]>;
       // Playback engine (TIDAL's web player in a hidden window).
       playerPlay: (trackId: string) => Promise<EnginePlayResult>;
       playerSetNext: (trackId: string | null) => Promise<boolean>;

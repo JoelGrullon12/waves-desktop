@@ -64,6 +64,14 @@ contextBridge.exposeInMainWorld("api", {
   saveQueue: (trackIds: string[]) => ipcRenderer.invoke("queue:save", trackIds),
   loadQueue: () => ipcRenderer.invoke("queue:load"),
 
+  incrementPlayCount: (trackId: string) =>
+    ipcRenderer.invoke("stats:increment-play-count", trackId),
+  getSmartShuffleOrder: (trackIds: string[]) =>
+    ipcRenderer.invoke("stats:get-smart-shuffle-order", trackIds),
+  getPlayCounts: (trackIds: string[]) => ipcRenderer.invoke("stats:get-play-counts", trackIds),
+  getTopPlayed: (limit: number, withinDays: number | null) =>
+    ipcRenderer.invoke("stats:get-top-played", limit, withinDays),
+
   // Only answered when the app runs with WAVES_DEBUG_API=1 (see tidalApiClient.ts).
   debugApiGet: (path: string) => ipcRenderer.invoke("debug:api-get", path),
 

@@ -4,6 +4,8 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { HorizontalScroll } from "@/components/media/HorizontalScroll";
 import { MediaCard } from "@/components/media/MediaCard";
+import { TrackList } from "@/components/tracks/TrackList";
+import { playCountLabels, useTopPlayedTracks } from "@/hooks/useTopPlayedTracks";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
 import { playMedia } from "@/lib/mediaPlayback";
@@ -81,6 +83,27 @@ function HomeSection({
         <p className="py-4 text-sm text-muted-foreground">{emptyText ?? "Nothing here yet."}</p>
       )}
       {showContent && children}
+    </section>
+  );
+}
+
+const MOST_LISTENED_LIMIT = 10;
+const MOST_LISTENED_SOURCE = { sourceType: "stats", sourceId: "most-listened" };
+
+// The tracks played most in this app, from the local statistics. Hidden until
+// something has been played long enough to count.
+function MostListened() {
+  const topPlayed = useTopPlayedTracks(MOST_LISTENED_LIMIT, null);
+  const details = useMemo(
+    () => playCountLabels(topPlayed.data?.playCountById ?? new Map()),
+    [topPlayed.data],
+  );
+  const tracks = topPlayed.data?.tracks ?? [];
+  if (tracks.length === 0) return null;
+  return (
+    <section className="mb-8" data-testid="most-listened">
+      <h2 className="mb-2 text-lg font-bold">Most listened</h2>
+      <TrackList tracks={tracks} source={MOST_LISTENED_SOURCE} detailByTrackId={details} />
     </section>
   );
 }
@@ -239,6 +262,8 @@ export function HomeView() {
           ))}
         </HorizontalScroll>
       </HomeSection>
+
+      <MostListened />
 
       <HomeSection
         title="New Releases"
