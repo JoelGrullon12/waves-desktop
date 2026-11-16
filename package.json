@@ -24,7 +24,6 @@
     "@fontsource-variable/geist": "^5.2.9",
     "@libsql/client": "^0.18.0",
     "@tanstack/react-query": "^5.101.1",
-    "@tidal-music/player": "^0.20.1",
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -44,8 +43,6 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.3.1",
-    "@tidal-music/common": "^0.2.1",
-    "@tidal-music/event-producer": "^2.4.2",
     "@types/node": "^22.10.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

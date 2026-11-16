@@ -7,7 +7,7 @@
 > **La Fase 3 se completa ANTES que las features especiales (4-8):** el objetivo es
 > un reproductor de suscripción completo antes de añadir nada más.
 
-Última actualización: 2026-11-15 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
+Última actualización: 2026-11-16 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
 
 ## Completadas
 
@@ -19,7 +19,7 @@
 - **Phase M — Electron Migration ✅** — Tauri v2 → Electron (Castlabs fork). Milestone logrado:
   login + reproducción completa con audio + empaquetado en Linux.
 
-## Phase 3 — Reproductor completo con funciones tradicionales 🔄
+## Phase 3 — Reproductor completo con funciones tradicionales ✅ (2026-11-15)
 
 > Se completa antes de las fases 4-8. Varios pendientes actuales (no-ops del menú
 > contextual, likes decorativos, shuffle one-shot, ausencia de repeat) son work items
@@ -70,7 +70,7 @@ cualquier reproductor tradicional:
 - `playerStore`/`playbackService` pasan a usar el motor; el SDK queda (o no) como respaldo de previews.
 - Riesgo: depende de internals de la web de TIDAL (selectores `data-test`, acciones Redux), que cambian.
 
-## Phase 4 — Smart Shuffle + Local Stats ⏳ (4-5 días)
+## Phase 4 — Smart Shuffle + Local Stats ✅ (2026-11-15)
 
 *Antes: Phase 3 (renumerada).*
 
@@ -87,7 +87,7 @@ cualquier reproductor tradicional:
 - El threshold de 30 s se guarda en `user_preferences` y es ajustable.
 - Re-agregar los IPC `stats:*` (`incrementPlayCount`, `getSmartShuffleQueue`).
 
-## Phase 5 — Cloud Sync con Turso ⏳ (2-3 días)
+## Phase 5 — Cloud Sync con Turso ✅ (2026-11-15)
 
 *Antes: Phase 4 (renumerada).*
 
@@ -98,7 +98,7 @@ cualquier reproductor tradicional:
 
 Nota del desarrollador: cree una cuenta en Turso y cree una BD llamada waves-db, anote la url que me daba en el env, para el auth token no se bien a que se referia, vi una opcion en Settings > API Tokens y cree uno llamado waves-token, lo copie y lo pegue en el .env, si no era ese dime cuando estes revisando y planeando y lo hago. Pero si era eso, creo que con eso ya tienes acceso
 
-## Phase 6 — Mobile Remote Control ⏳ (3-4 días)
+## Phase 6 — Mobile Remote Control ✅ (2026-11-16; falta probar con un teléfono real)
 
 *Antes: Phase 5 (renumerada).*
 
@@ -110,7 +110,7 @@ Nota del desarrollador: cree una cuenta en Turso y cree una BD llamada waves-db,
 - Eventos: `play`, `pause`, `next`, `previous`, `set_volume`, `state_sync` (push de track,
   artwork URL, progreso, volumen en cada cambio de estado).
 
-## Phase 7 — Favorites ⏳ (3-4 días)
+## Phase 7 — Favorites ✅ (2026-11-15; solo Favorites, sin playlist global)
 
 *Antes: Phase 6 (renumerada).*
 
@@ -122,7 +122,7 @@ Nota del desarrollador: cree una cuenta en Turso y cree una BD llamada waves-db,
 
 Nota del desarrollador: se elimino la parte de playlist global ya que seria demasiado pesado a nivel de api y el resultado no tendria tanto valor, solo se hara lo de favorito por X cantidad de tiempo 
 
-## Phase 8 — Cache local de metadata ⏳ (opcional, EXTRA)
+## Phase 8 — Cache local de metadata ✅ (2026-11-16; opcional, interruptor en Ajustes)
 
 *Antes: Phase 7 (renumerada).*
 

@@ -38,12 +38,6 @@ declare global {
       login: () => Promise<{ isAuthenticated: boolean; userId: string | null }>;
       logout: () => Promise<{ isAuthenticated: boolean }>;
       isAuthenticated: () => Promise<boolean>;
-      getSessionCredentials: () => Promise<{
-        access_token: string;
-        client_id: string;
-        user_id: string | null;
-      } | null>;
-      getAccessToken: () => Promise<string | null>;
       searchTracks: (query: string) => Promise<Track[]>;
       getAlbumTracksPage: (albumId: string, cursor: string | null) => Promise<TrackPage>;
       getPlaylistTracksPage: (
@@ -120,12 +114,6 @@ declare global {
       webLogin: () => Promise<{ success: boolean; error?: string }>;
       webLogout: () => Promise<{ success: boolean }>;
       isWebSessionConnected: () => Promise<boolean>;
-      getWebSessionCredentials: () => Promise<{
-        client_id: string;
-        access_token: string;
-        user_id: string | null;
-      } | null>;
-      getWebPlaybackStream: (trackId: string) => Promise<string>;
     };
   }
 }

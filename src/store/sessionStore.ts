@@ -1,12 +1,6 @@
 import { create } from "zustand";
 import type { AuthState } from "@/types/auth";
 
-export interface SessionCredentials {
-  access_token: string;
-  user_id: string | null;
-  client_id: string;
-}
-
 interface SessionStore extends AuthState {
   isLoading: boolean;
   loggingIn: boolean;
@@ -21,9 +15,6 @@ interface SessionStore extends AuthState {
   logout: () => Promise<void>;
   webLogin: () => Promise<void>;
   webLogout: () => Promise<void>;
-  getAccessToken: () => Promise<string | null>;
-  getSessionCredentials: () => Promise<SessionCredentials | null>;
-  getWebSessionCredentials: () => Promise<SessionCredentials | null>;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -110,17 +101,5 @@ export const useSessionStore = create<SessionStore>((set) => ({
   webLogout: async () => {
     await window.api.webLogout();
     set({ isWebSessionConnected: false, webLoginPending: false, webLoginError: null });
-  },
-
-  getAccessToken: async () => {
-    return await window.api.getAccessToken();
-  },
-
-  getSessionCredentials: async () => {
-    return await window.api.getSessionCredentials();
-  },
-
-  getWebSessionCredentials: async () => {
-    return await window.api.getWebSessionCredentials();
   },
 }));

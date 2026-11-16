@@ -4,56 +4,43 @@ A desktop player for **TIDAL** built with Electron, React, and TypeScript. Priva
 authenticated, ad-free: search, albums, playlists, and playback of **full-length** tracks (not
 previews) using your paid subscription.
 
-## Project status (current phase)
+## What it does
 
-The app plays TIDAL tracks **without the 30-second cap** (verified 2026-09-14): progress bar,
-previous/next, search, volume, and queueing. The preview cause (server-side cut by TIDAL based
-on the developer app's tier) was solved by connecting a **first-party web session** from
-TIDAL's web player and using it in the official SDK's playback engine.
+- Full-length playback (up to Max quality) through TIDAL's own web player, which runs in a
+  hidden window; Waves owns the queue and the interface.
+- Home, library (playlists, albums, artists — sortable), releases feed, artist pages, liked
+  songs, search on TIDAL or inside your own collection.
+- Queue with shuffle, repeat (off / once / track / all), restored when the app starts.
+- Like / unlike, add to several playlists at once, create and delete playlists.
+- **Play counts** kept locally and **smart shuffle** that plays the least heard tracks first.
+- **Favorites**: your most played tracks of the last days.
+- Optional **Turso sync** of the play counts across devices.
+- Optional **phone remote**: scan a QR code and control playback from the phone's browser.
+- Optional **local library copy** for instant lists and a collection search that also covers
+  your playlists.
+- Light / dark / system theme.
 
-Currently working:
-
-- OAuth PKCE login against TIDAL (Dashboard) with encrypted token storage.
-- First-party web session (`tidal.com`) for **FULL playback**.
-- Track search plus library, album, and playlist views.
-- **Songs (liked tracks)** screen with cursor-based infinite scroll and full-library
-  shuffle/play — partially functional: the context-menu actions and like hearts are still
-  UI no-ops (covered by **Phase 3** of the roadmap).
-- Player with progress bar, play/pause, previous/next, queue, and volume (Widevine).
-
-See [ROADMAP.md](./ROADMAP.md) for the complete product roadmap. Current focus: **Phase 3 —
-a complete subscription-style player** (home/library overview, release feed, artist profiles,
-dynamic queue with shuffle/repeat, functional context menu, visual settings, and search within
-your collection), which lands before the special features (smart shuffle, sync, remote, etc.).
+See [ROADMAP.md](./ROADMAP.md) for the history of the phases.
 
 ## How full playback works
 
-The official TIDAL SDK (`@tidal-music/player`) requests the manifest at
-`/v2/trackManifests/{id}`, and TIDAL decides `FULL` or `PREVIEW` **on the server side**, based on
-who owns the token. The developer Dashboard app token only ever gets previews; a **first-party web
-session** (the same PKCE flow as the web player, client `49YxDN9a2aFV6RTG`) belongs to your
-subscribed account and serves `FULL` assets.
+TIDAL's audio CDN only serves full tracks to pages on `tidal.com`. Waves therefore loads TIDAL's
+web player as it is in a hidden window, signed in with your own account (Settings → *Connect
+full playback*), and tells it what to play. Nothing is downloaded and no request is disguised;
+this is the same approach community players such as tidal-hifi use. Details in `AGENTS.md`
+("Playback engine").
 
-Waves combines both:
-
-- The SDK's `CredentialsProvider` picks the token: the web session when connected, the Dashboard
-  token otherwise. Because the SDK requests credentials on every `load`, connecting the session is
-  enough — no re-initialization required.
-- No embedded windows for the web login: `login.tidal.com/authorize` opens in your system browser,
-  and you paste the `code` back into the app. (A `BrowserWindow` loading TIDAL's SPA crashes in
-  this environment — see `AGENTS.md`.)
-
-> ⚠️ The web session is first-party to TIDAL. Use it with your own account. This is the same
-> pattern community players such as tidal-hifi use. See the note in `AGENTS.md`.
+Two sign-ins exist: the **Dashboard app** (your own client id, used for the catalog API) and the
+**web session** (used by the playback engine).
 
 ## Stack
 
 - **Electron** (fork [castlabs `#v44.1.0+wvcus`](https://github.com/castlabs/electron-releases))
   for Widevine DRM.
 - **React 19 + TypeScript + Tailwind CSS 4** (base-ui/shadcn) and Vite (electron-vite).
-- **@tidal-music/player** (TIDAL web SDK) for playback (shaka/browser).
+- **TIDAL's web player** in a hidden window for playback.
 - **zustand** (state), **@tanstack/react-query** (data), **node:sqlite** (local DB),
-  **libSQL/Turso** (cloud sync, planned), **safeStorage** for token encryption.
+  **libSQL/Turso** (optional cloud sync), **ws** (phone remote), **safeStorage** for token encryption.
 
 ## Requirements
 
@@ -86,14 +73,14 @@ Create `.env` from `.env.example` and fill in the values (never commit `.env`):
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `TIDAL_CLIENT_ID` | Yes | TIDAL Dashboard app (OAuth PKCE) |
-| `TIDAL_CLIENT_SECRET` | Yes | TIDAL Dashboard app secret |
-| `TIDAL_REDIRECT_URI` | Yes (register it) | `http://127.0.0.1:8899/tidal-callback` — must match the Dashboard exactly |
+| `TIDAL_CLIENT_ID` | No (dev override) | TIDAL Dashboard app; a packaged build asks for it on first launch |
+| `TIDAL_CLIENT_SECRET` | No (dev override) | TIDAL Dashboard app secret |
 | `TURSO_DATABASE_URL` | No | Turso cloud DB for cross-device play-count sync |
 | `TURSO_AUTH_TOKEN` | No | Turso auth token |
 | `REMOTE_CONTROL_WEBSOCKET_PORT` | No | Mobile remote-control WebSocket port (default `47836`) |
 | `LOCAL_SQLITE_PATH` | No | Override SQLite path (defaults to Electron's user-data dir) |
 
+> Register the redirect URI `http://127.0.0.1:8899/tidal-callback` in the Dashboard.
 > TIDAL scopes to enable in the Dashboard: `user.read`, `collection.read`, `collection.write`,
 > `playlists.read`, `playlists.write`, `playback`, `search.read`. If the redirect URI or scopes
 > change, re-create the `.env` and log out/in once to re-mint tokens.
@@ -102,46 +89,23 @@ Create `.env` from `.env.example` and fill in the values (never commit `.env`):
 
 1. **Login (Dashboard)**: press "Login" → your browser opens → you come back authenticated.
 2. **Full playback**: in *Settings* → *Connect full playback* → sign in to TIDAL in the window
-   that opens; it closes by itself once signed in. The app stores the session encrypted and
-   refreshes the token automatically (~24 h). Audio from TIDAL's CDN is still blocked for the
-   app's own player (HTTP 403); full playback through TIDAL's web player is Phase R in `ROADMAP.md`.
-3. **Widevine (Linux only)**: the Castlabs Component Updater can fail to auto-install the Widevine
-   CDM in some environments. If `navigator.requestMediaKeySystemAccess('com.widevine.alpha')`
-   rejects, copy an existing CDM into the app's user-data dir (`~/.config/waves-desktop/WidevineCdm/…`)
-   — full steps in `AGENTS.md` ("How Widevine is delivered").
-
-## Scripts
-
-| Command | What it does |
-|---|---|
-| `npm install` | Installs deps; `postinstall` downloads the Electron fork binary |
-| `npm run dev` | Development (hot reload) — Linux flags applied automatically |
-| `npm start` | Preview the production build |
-| `npm run typecheck` | TypeScript (node + renderer) |
-| `npm run lint` | ESLint |
-| `npm test` | Vitest unit tests (pure logic: lib, stores, catalog parsers) |
-| `npm run verify` | typecheck + lint + test + build — run before every commit |
-| `npm run build` | Build main + preload + renderer |
-| `npm run package:linux` | Package Linux (`.AppImage` + `.deb`) — run on Linux |
-| `npm run package:win` | Package Windows (`.exe`, nsis) — run on Windows |
+   that opens; it closes by itself once signed in.
+3. **Widevine**: the DRM module is downloaded on the first launch and is ready from the second
+   one (see `AGENTS.md`, "How Widevine is delivered").
+4. Optional, all in *Settings*: phone remote, local library copy, play threshold, shuffle mode,
+   Favorites size. Turso sync is configured in `.env`.
 
 ## Packaging & distribution
 
 Packaging uses [`electron-builder`](https://www.electron.build) configured in
-`electron-builder.yml`. The key setting is `electronDist: node_modules/electron/dist`: it copies
-the already-downloaded Castlabs fork binary (which bundles Widevine), so packaging **never
-downloads Electron from the standard repository**. Before this setting existed, `electron-builder`
-tried to resolve `v44.1.0+wvcus` against `github.com/electron/electron` and failed with a 404.
-
-Build **on the OS you are targeting** (the local `node_modules/electron/dist` is single-platform,
-and Windows NSIS builds need tooling that is not available on Linux by default):
+`electron-builder.yml`, run through `scripts/packageApp.mjs`. The script downloads the Castlabs
+Electron build of the **target** platform (cached in `node_modules/.cache/waves-electron/`) and
+points electron-builder at it, so packaging never uses the standard Electron releases.
 
 ```bash
-# On Linux
 npm run package:linux   # → dist/Waves Desktop-*.AppImage, dist/waves-desktop_*_amd64.deb
-
-# On Windows
-npm run package:win     # → dist/Waves Desktop-Setup-*.exe
+npm run package:win     # on Windows (or Linux with Wine) → nsis installer
+                        # on Linux without Wine → dist/Waves Desktop-*-win.zip (portable)
 ```
 
 Artifacts land in `dist/` (gitignored). Icons live in `resources/` (`icon.png` for Linux,
@@ -150,14 +114,14 @@ Artifacts land in `dist/` (gitignored). Icons live in `resources/` (`icon.png` f
 ## Structure
 
 ```
-electron/main/    auth (Dashboard), webSessionAuth (FULL web session), catalog, database
+electron/main/    auth, webSessionAuth, tidalWebPlayer (engine), catalog, database, play counts,
+                  smart shuffle, Turso sync, phone remote, local library copy
 electron/preload/ contextBridge → window.api
-src/store/        sessionStore, playerStore (wraps the SDK), queueStore, songsStore
-src/services/     playbackService (SDK wrapper)
-src/views/        LoginView, HomeView, SongsView (liked), SearchView, MediaDetailView, SettingsView
-src/components/   PlayerBar, QueuePanel, AppShell, TrackList, MediaCard, HorizontalScroll, ui/*
-scripts/          ensureElectron.mjs (postinstall binary download), runElectron.mjs (dev/start)
-electron-builder.yml   Packaging config (electronDist → Castlabs fork)
+src/store/        Zustand stores (player, queue, session, liked, preferences, cache)
+src/services/     playbackService (engine commands/events), tidalCatalogService
+src/views/        Login, Home, Songs, Search, Favorites, Library, Releases, Artist, MediaDetail, Settings
+src/components/   layout, media, player, settings, tracks, ui
+scripts/          ensureElectron, runElectron, packageApp, driveApp
 resources/        App icons (placeholders)
 ```
 

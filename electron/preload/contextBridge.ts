@@ -10,8 +10,6 @@ contextBridge.exposeInMainWorld("api", {
   login: () => ipcRenderer.invoke("auth:login"),
   logout: () => ipcRenderer.invoke("auth:logout"),
   isAuthenticated: () => ipcRenderer.invoke("auth:is-authenticated"),
-  getSessionCredentials: () => ipcRenderer.invoke("auth:get-session-credentials"),
-  getAccessToken: () => ipcRenderer.invoke("auth:get-access-token"),
 
   searchTracks: (query: string) => ipcRenderer.invoke("catalog:search-tracks", query),
   getAlbumTracksPage: (albumId: string, cursor: string | null) =>
@@ -122,7 +120,4 @@ contextBridge.exposeInMainWorld("api", {
   webLogin: () => ipcRenderer.invoke("web-auth:login"),
   webLogout: () => ipcRenderer.invoke("web-auth:logout"),
   isWebSessionConnected: () => ipcRenderer.invoke("web-auth:is-connected"),
-  getWebSessionCredentials: () => ipcRenderer.invoke("web-auth:get-session-credentials"),
-  getWebPlaybackStream: (trackId: string) =>
-    ipcRenderer.invoke("web-auth:get-playback-stream", trackId),
 });
