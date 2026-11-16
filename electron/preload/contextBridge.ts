@@ -72,6 +72,9 @@ contextBridge.exposeInMainWorld("api", {
   getTopPlayed: (limit: number, withinDays: number | null) =>
     ipcRenderer.invoke("stats:get-top-played", limit, withinDays),
 
+  getSyncStatus: () => ipcRenderer.invoke("sync:get-status"),
+  runSyncNow: () => ipcRenderer.invoke("sync:run-now"),
+
   // Only answered when the app runs with WAVES_DEBUG_API=1 (see tidalApiClient.ts).
   debugApiGet: (path: string) => ipcRenderer.invoke("debug:api-get", path),
 

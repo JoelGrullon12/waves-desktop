@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { isThemeChoice, THEME_CHOICES, type ThemeChoice } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/store/preferencesStore";
 import { useSessionStore } from "@/store/sessionStore";
+import type { SyncStatus } from "@/types/player";
 
 const THEME_LABELS: Record<ThemeChoice, string> = {
   system: "Same as system",
@@ -80,6 +82,64 @@ export function ChoiceGroup<Choice extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+const SYNC_STATE_LABELS: Record<SyncStatus["state"], string> = {
+  disabled: "Not set up",
+  idle: "Up to date",
+  syncing: "Syncing…",
+  error: "Last attempt failed",
+};
+
+// Cloud copy of the play counts. It is set up outside the app (TURSO_* values
+// in the .env file), so this only reports its state and lets the user retry.
+function CloudSyncSection() {
+  const queryClient = useQueryClient();
+  const statusQuery = useQuery({
+    queryKey: ["sync-status"],
+    queryFn: () => window.api.getSyncStatus(),
+    refetchInterval: 10_000,
+  });
+  const status = statusQuery.data;
+  const syncNow = async () => {
+    queryClient.setQueryData<SyncStatus>(["sync-status"], (current) =>
+      current ? { ...current, state: "syncing" } : current,
+    );
+    queryClient.setQueryData(["sync-status"], await window.api.runSyncNow());
+  };
+
+  return (
+    <SettingsSection
+      title="Play count sync"
+      description={
+        status?.isConfigured
+          ? "Play counts are copied to your Turso database so they follow you across devices."
+          : "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the .env file to copy play counts to the cloud. Without them they stay on this device."
+      }
+    >
+      {status && (
+        <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="sync-status">
+          <span className={status.state === "error" ? "text-destructive" : "text-foreground"}>
+            {SYNC_STATE_LABELS[status.state]}
+          </span>
+          {status.lastSyncedAt && (
+            <span className="text-muted-foreground">
+              Last sync {new Date(status.lastSyncedAt).toLocaleString()}
+            </span>
+          )}
+          {status.pendingTracks > 0 && (
+            <span className="text-muted-foreground">{status.pendingTracks} waiting to be sent</span>
+          )}
+          {status.isConfigured && (
+            <Button variant="outline" size="sm" onClick={() => void syncNow()} disabled={status.state === "syncing"}>
+              Sync now
+            </Button>
+          )}
+        </div>
+      )}
+      {status?.lastError && <p className="mt-2 text-sm text-destructive">{status.lastError}</p>}
+    </SettingsSection>
   );
 }
 
@@ -154,6 +214,8 @@ export function SettingsView() {
             seconds
           </label>
         </SettingsSection>
+
+        <CloudSyncSection />
 
         <SettingsSection
           title="Playback session"

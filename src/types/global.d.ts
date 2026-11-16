@@ -1,4 +1,9 @@
-import type { EnginePlayResult, EngineSnapshot, PlayedTrack } from "@/types/player";
+import type {
+  EnginePlayResult,
+  EngineSnapshot,
+  PlayedTrack,
+  SyncStatus,
+} from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
 import type {
   AlbumDetail,
@@ -79,6 +84,9 @@ declare global {
       getPlayCounts: (trackIds: string[]) => Promise<Record<string, number>>;
       // `withinDays` null means all time.
       getTopPlayed: (limit: number, withinDays: number | null) => Promise<PlayedTrack[]>;
+      // Cloud copy of the play counts (Turso).
+      getSyncStatus: () => Promise<SyncStatus>;
+      runSyncNow: () => Promise<SyncStatus>;
       // Playback engine (TIDAL's web player in a hidden window).
       playerPlay: (trackId: string) => Promise<EnginePlayResult>;
       playerSetNext: (trackId: string | null) => Promise<boolean>;

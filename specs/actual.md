@@ -11,7 +11,7 @@ Pruebas reales: app lanzada con puerto de depuración y manejada por CDP (`scrip
 - [x] **3A — Reproductor + menú + likes:** shuffle/repeat persistentes (repeat: off → canción 1 vez → canción infinita → playlist), cola dinámica (play next / add to queue), escrituras v2 (like/unlike, añadir a playlists, crear playlist), `TrackContextMenu` funcional, `AddToPlaylistsDialog` (checkboxes + "Agregar"), enlaces a álbum/artista.
 - [x] **3B — Navegación y biblioteca:** `ArtistView`, `LibraryView` (playlists, carpetas, álbumes, artistas), feed de lanzamientos, `SearchView` con switch TIDAL/Colección, tema claro/oscuro/sistema, Ajustes ampliados, layout adaptable.
 - [x] **4 — Smart shuffle + stats:** `baseline_count`, `playCountRepository.ts`, `smartShuffle.ts`, conteo al pasar el umbral (30 s), IPC `stats:*`, Most Listened en Home.
-- [ ] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
+- [x] **5 — Turso:** `tursoSync.ts` (pull al arrancar, push por incremento, reintentos).
 - [ ] **7 — Favorites:** playlist virtual `/favorites` (top N en ventana de días, configurable).
 - [ ] **6 — Control remoto:** `remoteControl.ts` (`node:http` + `ws`, token de emparejamiento), página remota, QR en Ajustes (`qrcode-generator`).
 - [ ] **8 — Cache de metadata:** tablas `cached_*`, `metadataCache.ts`, interruptor global, refresco en segundo plano, búsqueda en colección con conteo y playlists.
@@ -37,6 +37,10 @@ Ninguna (todas respondidas el 2026-11-15, ver Decisiones).
 
 - **Fase 4 (2026-11-15):** `playCountRepository.ts` (conteos, `baseline_count`, top), `smartShuffle.ts` (grupos por nivel `play_count + baseline_count`, barajado dentro de cada grupo, de menor a mayor), migración `baseline_count` (`databaseSchema.ts`), IPC `stats:*`. Renderer: `PlayCounter` (suma solo escucha real; un salto de posición o la pausa no cuentan; una vez por reproducción), umbral configurable (30 s por defecto), el shuffle usa smart por defecto con caída a aleatorio si falla, Ajustes (tipo de shuffle + umbral), "Most listened" en Home, conteo por canción en la búsqueda de colección.
   - Probado por CDP con base de pruebas limpia (`.tmp/accept-4.js`): 2 escuchas de >5 s cuentan 2; iniciar + saltar + 3 s cuenta 0; la más escuchada sale última 20/20 y el orden varía; la cola de la UI respeta ese orden.
+
+- **Fase 5 (2026-11-15):** `tursoSync.ts` (cliente HTTP `@libsql/client/web`, sin módulo nativo), reglas puras en `playSync.ts` (por canción gana el conteo mayor y la fecha más reciente; la base no se pisa; no se suben filas 0/0), sync completo al arrancar en segundo plano + envío de cada escucha contada, pendientes si falla la red, IPC `sync:get-status` / `sync:run-now`, sección "Play count sync" en Ajustes. Sin variables `TURSO_*` queda desactivado y todo sigue local.
+  - Probado: tests contra libSQL en memoria (dos "dispositivos"), y contra el Turso real con la tabla temporal `track_plays_selftest` (subida de una escucha, y arranque con base local vacía que recupera el conteo); tabla temporal borrada. La tabla real `track_plays` se creará en el primer arranque normal.
+  - Las ejecuciones de prueba (`.tmp/start.sh`) llevan el sync apagado salvo `WAVES_TEST_SYNC=1`.
 
 ## Decisiones (y por que)
 - **Motor web en vez del SDK (2026-11-15):** el CDN solo sirve audio a `tidal.com`; el SDK queda como respaldo y se elimina al cierre si no hace falta.

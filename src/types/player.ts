@@ -48,3 +48,14 @@ export interface PlayedTrack {
   playCount: number;
   lastPlayedAt: string | null;
 }
+
+// State of the cloud copy of the play counts.
+export interface SyncStatus {
+  // False when the TURSO_* environment values are missing.
+  isConfigured: boolean;
+  state: "disabled" | "idle" | "syncing" | "error";
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  // Plays counted locally that have not reached the cloud yet.
+  pendingTracks: number;
+}

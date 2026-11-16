@@ -5,7 +5,7 @@ import { registerCatalogHandlers } from "./catalog";
 import { initializeDatabase } from "./database";
 import { registerLibraryHandlers } from "./libraryCatalog";
 import { registerApiExplorer } from "./tidalApiClient";
-import { registerStatsHandlers } from "./playCountRepository";
+import { registerStatsHandlers, setPlayCountedListener } from "./playCountRepository";
 import { registerPreferencesHandlers } from "./preferencesRepository";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
@@ -16,6 +16,7 @@ import {
   tidalWebPlayer,
 } from "./tidalWebPlayer";
 import { registerWebSessionHandlers, setWebSessionListener } from "./webSessionAuth";
+import { pushPlayedTrack, registerSyncHandlers, startTursoSync } from "./tursoSync";
 import { installWidevineFromCache, type WidevineInstallResult } from "./widevineInstaller";
 
 // Electron is launched with `--no-sandbox` (see package.json scripts and
@@ -121,6 +122,9 @@ app.whenReady().then(async () => {
   initializeDatabase();
   registerPreferencesHandlers();
   registerStatsHandlers();
+  registerSyncHandlers();
+  setPlayCountedListener(pushPlayedTrack);
+  void startTursoSync();
   setWebSessionListener((isConnected) => {
     if (isConnected) tidalWebPlayer.warmUp();
     else tidalWebPlayer.shutDown();

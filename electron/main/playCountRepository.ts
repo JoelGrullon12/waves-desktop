@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { PlayedTrack } from "../../src/types/player";
 import { getDatabase } from "./database";
+import type { PlayRow } from "./playSync";
 import { handleTrusted } from "./secureIpc";
 import { smartShuffleOrder } from "./smartShuffle";
 import { requireNumberInRange, requireResourceId, requireResourceIdList } from "./validation";
@@ -124,6 +125,45 @@ export class PlayCountRepository {
     }));
   }
 
+  // Everything this device knows, for the cloud sync.
+  allRows(): PlayRow[] {
+    const rows = this.databaseConnection
+      .prepare("SELECT track_id, play_count, baseline_count, last_played_at FROM track_plays")
+      .all() as unknown as SyncedRowRecord[];
+    return rows.map(playRowFromRecord);
+  }
+
+  row(trackId: string): PlayRow | null {
+    const record = this.databaseConnection
+      .prepare(
+        "SELECT track_id, play_count, baseline_count, last_played_at FROM track_plays WHERE track_id = ?",
+      )
+      .get(trackId) as SyncedRowRecord | undefined;
+    return record ? playRowFromRecord(record) : null;
+  }
+
+  // Writes rows already merged by the sync (see playSync.ts).
+  applySyncedRows(rows: PlayRow[]): void {
+    if (rows.length === 0) return;
+    const upsert = this.databaseConnection.prepare(
+      `INSERT INTO track_plays (track_id, play_count, baseline_count, last_played_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(track_id) DO UPDATE SET
+         play_count = excluded.play_count,
+         last_played_at = excluded.last_played_at`,
+    );
+    this.databaseConnection.exec("BEGIN");
+    try {
+      for (const row of rows) {
+        upsert.run(row.trackId, row.playCount, row.baselineCount, row.lastPlayedAt);
+      }
+      this.databaseConnection.exec("COMMIT");
+    } catch (error) {
+      this.databaseConnection.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   // The ids in smart-shuffle order; tracks seen for the first time are
   // registered (and get their baseline) on the way.
   smartShuffle(trackIds: string[]): string[] {
@@ -148,6 +188,22 @@ export class PlayCountRepository {
   }
 }
 
+interface SyncedRowRecord {
+  track_id: string;
+  play_count: number;
+  baseline_count: number;
+  last_played_at: string | null;
+}
+
+function playRowFromRecord(record: SyncedRowRecord): PlayRow {
+  return {
+    trackId: record.track_id,
+    playCount: record.play_count,
+    baselineCount: record.baseline_count,
+    lastPlayedAt: record.last_played_at,
+  };
+}
+
 // Lower median, so a list of two levels joins at the lower one.
 function medianOf(levels: number[]): number {
   if (levels.length === 0) return 0;
@@ -162,10 +218,20 @@ export function getPlayCountRepository(): PlayCountRepository {
   return playCountRepository;
 }
 
+// Set by the cloud sync, which wants to hear about every counted play.
+let onPlayCounted: ((trackId: string) => void) | null = null;
+
+export function setPlayCountedListener(listener: (trackId: string) => void): void {
+  onPlayCounted = listener;
+}
+
 export function registerStatsHandlers(): void {
-  handleTrusted("stats:increment-play-count", (_event, trackId) =>
-    getPlayCountRepository().incrementPlayCount(requireResourceId(trackId, "track id")),
-  );
+  handleTrusted("stats:increment-play-count", (_event, trackId) => {
+    const validTrackId = requireResourceId(trackId, "track id");
+    const playCount = getPlayCountRepository().incrementPlayCount(validTrackId);
+    onPlayCounted?.(validTrackId);
+    return playCount;
+  });
   handleTrusted("stats:get-smart-shuffle-order", (_event, trackIds) =>
     getPlayCountRepository().smartShuffle(
       requireResourceIdList(trackIds, "track ids", MAX_SHUFFLED_TRACKS),
