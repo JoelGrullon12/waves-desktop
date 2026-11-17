@@ -232,6 +232,8 @@ build is configured from Settings). The Electron main process loads it with `dot
 # Development override: a packaged build asks for these on first launch
 TIDAL_CLIENT_ID=
 TIDAL_CLIENT_SECRET=
+# Dashboard login callback (default http://127.0.0.1:8899/tidal-callback)
+TIDAL_REDIRECT_URI=
 
 # Turso cloud database for play count sync (both empty = sync off, everything stays local)
 TURSO_DATABASE_URL=
@@ -247,7 +249,9 @@ LOCAL_SQLITE_PATH=
 `TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET` are a **development override**: a packaged build asks
 for them on first launch and stores them in `app-secrets`. When both are set in `.env` they win
 over the stored ones (same rule for `TURSO_*` and `REMOTE_CONTROL_WEBSOCKET_PORT`).
-The redirect URI is hardcoded in `electron/main/auth.ts`.
+`TIDAL_REDIRECT_URI` (development only) moves the Dashboard login callback; `resolveOAuthRedirect`
+(`validation.ts`) only accepts loopback `http` with an explicit port and a path, because the app
+listens there itself. Without it the default `http://127.0.0.1:8899/tidal-callback` is used.
 
 Debug-only variables: `WAVES_SHOW_ENGINE=1` (show the engine window), `WAVES_DEBUG_API=1`
 (enable `debug:api-get`), `WAVES_SYNC_TABLE` (Turso table name, to test sync against a
@@ -260,15 +264,16 @@ against a copy of the profile instead of the real one), `WAVES_DEBUG_COVER_FILE`
 TIDAL rejects the Authorization Code request (error `11102`) when the `redirect_uri` does not
 exactly match a URI registered in the developer dashboard.
 
-**Fixed redirect URI in use:** `http://127.0.0.1:8899/tidal-callback`
+**Default redirect URI:** `http://127.0.0.1:8899/tidal-callback` (development can change it with `TIDAL_REDIRECT_URI`)
 
 Setup (one-time):
 1. Open your app in the [TIDAL dashboard](https://developer.tidal.com/dashboard) → edit
    redirect URI to exactly `http://127.0.0.1:8899/tidal-callback`.
 2. Enable scopes: `user.read`, `collection.read`, `collection.write`, `playlists.read`,
    `playlists.write`, `playback`, `search.read`.
-3. Port and path are constants in `electron/main/auth.ts`. If changed, update both the code
-   and the dashboard registration.
+3. The default comes from `DEFAULT_OAUTH_REDIRECT_URI` in `electron/main/validation.ts`; in
+   development `TIDAL_REDIRECT_URI` overrides it. Whatever is used must also be registered in
+   the dashboard, character by character.
 
 Tokens minted before `playback` and `search.read` scopes were added are stale —
 log out and log in once to re-mint.
@@ -392,7 +397,8 @@ waves-desktop/
 │   ├── ensureElectron.mjs          # postinstall: downloads fork binary if dist/ missing
 │   ├── driveApp.mjs                # Dev helper: drives a running app over the DevTools Protocol
 │   ├── runElectron.mjs             # dev/start: spawns electron-vite, Linux-only Chromium flags
-│   └── packageApp.mjs              # package:*: fetches the target platform's Electron build, runs electron-builder
+│   ├── packageApp.mjs              # package:*: fetches the target platform's Electron build, runs electron-builder
+│   └── vmpSign.mjs                 # castlabs EVS VMP signing: `npm run vmp:sign` + electron-builder afterSign hook
 │
 ├── resources/
 │   ├── icon.png                    # App icon (AppImage/deb, 2000×2000)
@@ -454,6 +460,7 @@ npm run verify        # typecheck + lint + test + build — run before every com
 
 npm run package:linux # Package Linux (.AppImage + .deb)
 npm run package:win   # Package Windows: nsis installer on Windows (or Linux with Wine); portable .zip from Linux without Wine
+npm run vmp:sign      # VMP-sign node_modules/electron/dist (needed for sound in `npm run dev` on Windows)
 ```
 
 Verification is `npm run verify`. Tests cover pure logic only; anything that needs the
@@ -509,6 +516,25 @@ production by tidal-hifi since 2021, with confirmed Max quality (HiRes FLAC 24-b
 Caveat (2026-09-14): the automatic CDM Component Updater did not work in this environment —
 the practical delivery is copying an existing CDM into the app user data (see "How Widevine
 is delivered" above). Still no source build required.
+
+### VMP signature on Windows (verified 2026-11-16)
+On Windows TIDAL's license server (`api.tidal.com/v2/widevine`) refuses every license request
+from the Castlabs build as shipped: HTTP 400 `Widevine license request failed [status:
+ACCESS_DENIED, ... vmp: null]`, and the web player shows `PlaybackError: S6007` (the track loads,
+`readyState` stays at 1, nothing sounds). The `electron.exe.sig` in the release is a
+**development** VMP signature that production license servers reject. Linux has no VMP, so it
+plays unsigned. The fix is re-signing with castlabs' EVS service (free account, Python tool, not
+an npm dependency):
+- One-time: `python -m pip install --upgrade castlabs-evs` and
+  `python -m castlabs_evs.account signup` (later `... account reauth` when the session expires).
+- Development: `npm run vmp:sign` signs `node_modules/electron/dist`; repeat after the binary is
+  reinstalled.
+- Packaging: `scripts/vmpSign.mjs` is electron-builder's `afterSign` hook (after Authenticode,
+  before the installer), so `npm run package:win` fails if EVS is missing. `WAVES_SKIP_VMP=1`
+  packages unsigned (it will not play).
+The engine log line `web-player: S6007 = TIDAL refused the Widevine license` points here. On
+Windows the page also probes PlayReady, which this build does not offer; those warnings are
+filtered out of the log.
 
 ### Why Widevine L3 is not a quality limitation for audio
 Widevine L3 restricts video resolution (L3 sessions are capped at SD by content licensing

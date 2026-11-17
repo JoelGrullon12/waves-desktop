@@ -19,6 +19,9 @@ directories:
   output: dist
 files:
   - out/**
+# VMP signature for Widevine on Windows: without it TIDAL refuses the license
+# (ACCESS_DENIED, PlaybackError S6007). Does nothing for Linux targets.
+afterSign: ./scripts/vmpSign.mjs
 
 win:
   target:

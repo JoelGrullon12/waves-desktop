@@ -29,3 +29,6 @@ dist-ssr
 
 # Scratch output of local test runs (logs, screenshots, test databases)
 .tmp
+
+# Personal notes of pending changes (never committed)
+details.md

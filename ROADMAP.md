@@ -143,9 +143,9 @@ Nota del desarrollador: se elimino la parte de playlist global ya que seria dema
   para el streaming de metadata completa al reproducir.
 - No conectado a nada aún — solo diseño.
 
-## Phase 9 — Pulido desde `details.md` ✅ (2026-11-16; Windows a falta de probar allí)
+## Phase 9 — Pulido desde `details.md` ✅ (2026-11-16/17)
 
-Plan y decisiones en `specs/actual.md`. Seis bloques: configuración sin `.env` (`settings.ini`,
+Archivada en `specs/history/2026-11-17-details-y-windows.md`. Seis bloques: configuración sin `.env` (`settings.ini`,
 secretos cifrados, carpeta de datos movible), Windows (log en archivo, arreglos a ciegas),
 barra lateral y detalles visuales, listas/cola/barra inferior, panel "Now playing" con letras
 sincronizadas y créditos (API v2: `tracks/{id}/relationships/lyrics|credits`), y edición de
@@ -153,7 +153,9 @@ playlists (nombre, descripción, portada) con créditos del álbum.
 
 Hallazgos: letras y créditos solo los da la API v2 a la sesión web (el token de la app recibe
 vacío); la portada de playlist no se puede cambiar con el token de la app (403 en `/artworks`,
-sugeridas vacías).
+sugeridas vacías). En Windows la pantalla en blanco del `.exe` era la ruta `file:///C:/…` (resuelta
+con `HashRouter`) y la falta de sonido, la licencia Widevine negada sin firma VMP de producción
+(`ACCESS_DENIED`, S6007): se firma con castlabs EVS (`npm run vmp:sign` y hook `afterSign`).
 
 ## Backlog / ideas sin fase
 
@@ -163,8 +165,8 @@ sugeridas vacías).
 - **`desktopName` + `linux.syncDesktopName: true`** en electron-builder (asociar la ventana
   al .desktop; aviso no bloqueante en el empaquetado).
 - **Pull-to-refresh / refetch por tiempo** de la colección (puede subsumirse en la Fase 3).
-- **Validación en la W11 (pendiente de usuario):** `npm install` + `npm run dev` +
-  `npm run package:win` — detalle en `specs/actual.md`.
+- Probar el control remoto con un teléfono real y las teclas multimedia del teclado físico.
+- `catalog:get-mixes` devuelve 404 en esta cuenta: la fila de mixes de Home queda vacía.
 
 ---
 
@@ -191,7 +193,7 @@ sugeridas vacías).
 - [x] Credenciales TIDAL pedidas en el primer arranque (guardadas con `safeStorage`); `.env` solo override de desarrollo (sesión 3).
 - [x] Widevine en Linux: instalar automáticamente el CRX oficial cacheado por el Component Updater en `userData/WidevineCdm/` si falta (lector ZIP propio sobre `node:zlib`, sin dependencias nuevas; sin CDM vendorizado).
 - [x] Login FULL sin pegar el `code`: el spike de Device Authorization falló (2026-10-23: `Client is not a Limited Input Device client`, HTTP 400) y se implementó el plan B, una ventana de login que captura la redirección automáticamente.
-- [ ] Validar clon limpio → `npm install` → `npm run dev` → `package:*` en Bazzite y Windows 11.
+- [x] Validar clon limpio → `npm install` → `npm run dev` → `package:*` en Bazzite y Windows (Windows 10, 2026-11-17, con la firma VMP).
 - [x] Sincronizar docs (`.env.example` depurado en la sesión 3): IPC, rutas, árbol y variables realmente leídas ya hechos en la sesión 1; falta `.env.example` (quitar variables que nadie lee o marcarlas como reservadas).
 
 **Criterio de aceptacion.** `npm run verify` verde en Linux y Windows; un clon limpio abre,

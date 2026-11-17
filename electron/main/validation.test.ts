@@ -16,6 +16,8 @@ import {
   requirePlaylistDescription,
   resolveTidalAppCredentials,
   resolveTursoConfig,
+  resolveOAuthRedirect,
+  DEFAULT_OAUTH_REDIRECT_URI,
 } from "./validation";
 
 describe("requireResourceId", () => {
@@ -246,5 +248,38 @@ describe("requirePlaylistDescription", () => {
   it("rejects long or non-text values", () => {
     expect(() => requirePlaylistDescription("x".repeat(501))).toThrow(/description/);
     expect(() => requirePlaylistDescription(null)).toThrow(/description/);
+  });
+});
+
+describe("resolveOAuthRedirect", () => {
+  it("uses the default when the variable is missing or empty", () => {
+    expect(resolveOAuthRedirect(undefined)).toEqual({
+      uri: DEFAULT_OAUTH_REDIRECT_URI,
+      host: "127.0.0.1",
+      port: 8899,
+      path: "/tidal-callback",
+    });
+    expect(resolveOAuthRedirect("  ").uri).toBe(DEFAULT_OAUTH_REDIRECT_URI);
+  });
+
+  it("accepts another loopback port and path, keeping the text as written", () => {
+    expect(resolveOAuthRedirect(" http://localhost:9100/callback ")).toEqual({
+      uri: "http://localhost:9100/callback",
+      host: "localhost",
+      port: 9100,
+      path: "/callback",
+    });
+  });
+
+  it.each([
+    "https://127.0.0.1:8899/tidal-callback",
+    "http://example.com:8899/tidal-callback",
+    "http://127.0.0.1/tidal-callback",
+    "http://127.0.0.1:80/tidal-callback",
+    "http://127.0.0.1:8899/",
+    "http://127.0.0.1:8899/tidal-callback?x=1",
+    "not a url",
+  ])("refuses %s", (value) => {
+    expect(() => resolveOAuthRedirect(value)).toThrow(/TIDAL_REDIRECT_URI/);
   });
 });

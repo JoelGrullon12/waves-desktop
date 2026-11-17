@@ -30,6 +30,19 @@ const SHOW_ENGINE_WINDOW = process.env["WAVES_SHOW_ENGINE"] === "1";
 // Page console errors worth keeping in the log; the rest of TIDAL's page noise
 // is left out.
 const DRM_MESSAGE_PATTERN = /widevine|drm|\beme\b|mediakey|licen[cs]e|decod|audio|playback|media/i;
+// On Windows the page probes PlayReady (which this build does not offer) and
+// Chromium answers each probe with a warning; Widevine is what plays.
+const PLAYREADY_PROBE_PATTERN = /com\.microsoft\.playready/;
+// TIDAL's code for a refused Widevine license. Seen on Windows when the
+// Electron build lacks a production VMP signature (the license server answers
+// ACCESS_DENIED, vmp: null); see scripts/vmpSign.mjs.
+const LICENSE_REFUSED_CODE = "S6007";
+const LICENSE_REFUSED_HINT =
+  `web-player: ${LICENSE_REFUSED_CODE} = TIDAL refused the Widevine license.` +
+  (process.platform === "win32"
+    ? " On Windows this means the Electron build is not VMP-signed: run `npm run vmp:sign` " +
+      "(castlabs EVS account) or package with the afterSign signing step."
+    : "");
 
 export const PLAYER_STATE_CHANNEL = "player:state";
 export const PLAYER_MEDIA_KEY_CHANNEL = "player:media-key";
@@ -69,6 +82,7 @@ export class TidalWebPlayer {
   // Kept for the timeout message: tells a slow page apart from a broken script.
   private lastReadError: string | null = null;
   private lastDiagnosedPlaybackId: string | null = null;
+  private hasExplainedLicenseRefusal = false;
   private readonly listeners = new Set<SnapshotListener>();
   private readonly mediaKeyListeners = new Set<MediaKeyListener>();
 
@@ -220,8 +234,16 @@ export class TidalWebPlayer {
     this.engineWindow = createdWindow;
     createdWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     createdWindow.webContents.on("console-message", (event) => {
-      if ((event.level === "error" || event.level === "warning") && DRM_MESSAGE_PATTERN.test(event.message)) {
+      if (
+        (event.level === "error" || event.level === "warning") &&
+        DRM_MESSAGE_PATTERN.test(event.message) &&
+        !PLAYREADY_PROBE_PATTERN.test(event.message)
+      ) {
         console.warn(`web-player page ${event.level}: ${event.message.slice(0, 500)}`);
+        if (!this.hasExplainedLicenseRefusal && event.message.includes(LICENSE_REFUSED_CODE)) {
+          this.hasExplainedLicenseRefusal = true;
+          console.error(LICENSE_REFUSED_HINT);
+        }
       }
       if (!event.message.startsWith(MEDIA_KEY_MARKER)) return;
       const command = event.message.slice(MEDIA_KEY_MARKER.length);

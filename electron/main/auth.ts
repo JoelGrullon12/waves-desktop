@@ -10,20 +10,17 @@ import dotenv from "dotenv";
 import { writePrivateFile } from "./privateFile";
 import { getTidalAppCredentials } from "./tidalAppCredentials";
 import { handleTrusted } from "./secureIpc";
+import { resolveOAuthRedirect, type OAuthRedirect } from "./validation";
 
 // Load .env at module scope: with ESM, imported modules evaluate before the
 // entry module's body, so env must be ready before these constants are read.
 dotenv.config();
 
-const REDIRECT_URI = "http://127.0.0.1:8899/tidal-callback";
 const AUTHORIZE_ENDPOINT = "https://login.tidal.com/authorize";
 const TOKEN_ENDPOINT = "https://auth.tidal.com/v1/oauth2/token";
 const USERS_ME_ENDPOINT = "https://openapi.tidal.com/v2/users/me";
 const OAUTH_SCOPE =
   "user.read collection.read collection.write playlists.read playlists.write playback search.read recommendations.read";
-const REDIRECT_PORT = 8899;
-const REDIRECT_HOST = "127.0.0.1";
-const REDIRECT_PATH = "/tidal-callback";
 const TOKEN_BUNDLE_FILE = "tidal-token-bundle";
 const HTTP_TIMEOUT_MS = 15_000;
 // The user has to sign in on TIDAL's page, so the callback gets a generous but
@@ -79,11 +76,11 @@ function createStateToken(): string {
   return [payload, signature].join(".");
 }
 
-function buildAuthorizationUrl(state: string, codeChallenge: string): string {
+function buildAuthorizationUrl(state: string, codeChallenge: string, redirectUri: string): string {
   const params = new URLSearchParams({
     response_type: "code",
     client_id: getTidalAppCredentials().clientId,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri,
     scope: OAUTH_SCOPE,
     state,
     code_challenge: codeChallenge,
@@ -120,11 +117,12 @@ function loadTokenBundle(): TokenBundle | null {
 async function exchangeCodeForTokens(
   code: string,
   codeVerifier: string,
+  redirectUri: string,
 ): Promise<TokenBundle> {
   const params = new URLSearchParams();
   params.set("grant_type", "authorization_code");
   params.set("code", code);
-  params.set("redirect_uri", REDIRECT_URI);
+  params.set("redirect_uri", redirectUri);
   const { clientId, clientSecret } = getTidalAppCredentials();
   params.set("client_id", clientId);
   params.set("code_verifier", codeVerifier);
@@ -210,11 +208,11 @@ function getCurrentUserId(
     .catch(() => null);
 }
 
-async function waitForAuthorizationCode(state: string): Promise<string> {
+async function waitForAuthorizationCode(state: string, redirect: OAuthRedirect): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const server = createServer((request, response) => {
-      const url = new URL(request.url ?? "", `http://${REDIRECT_HOST}:${REDIRECT_PORT}`);
-      if (url.pathname !== REDIRECT_PATH) {
+      const url = new URL(request.url ?? "", `http://${redirect.host}:${redirect.port}`);
+      if (url.pathname !== redirect.path) {
         response.writeHead(404).end();
         return;
       }
@@ -242,19 +240,21 @@ async function waitForAuthorizationCode(state: string): Promise<string> {
 
     // Typically EADDRINUSE when a previous login attempt still holds the port.
     server.on("error", (error) => finish(() => reject(error)));
-    server.listen(REDIRECT_PORT, REDIRECT_HOST);
+    server.listen(redirect.port, redirect.host);
   });
 }
 
 async function login(): Promise<TokenBundle> {
+  // Read at login time so a wrong TIDAL_REDIRECT_URI shows up as a login error.
+  const redirect = resolveOAuthRedirect(process.env["TIDAL_REDIRECT_URI"]);
   const pkce = generatePkcePair();
   const state = createStateToken();
-  const authorizationUrl = buildAuthorizationUrl(state, pkce.codeChallenge);
+  const authorizationUrl = buildAuthorizationUrl(state, pkce.codeChallenge, redirect.uri);
   // Open the browser first so the callback server actually receives the code.
   // Awaiting the callback before opening the URL deadlocks the flow forever.
   await shell.openExternal(authorizationUrl);
-  const code = await waitForAuthorizationCode(state);
-  const tokenBundle = await exchangeCodeForTokens(code, pkce.codeVerifier);
+  const code = await waitForAuthorizationCode(state, redirect);
+  const tokenBundle = await exchangeCodeForTokens(code, pkce.codeVerifier, redirect.uri);
   const userId = await getCurrentUserId(tokenBundle.accessToken);
   tokenBundle.userId = userId;
   saveTokenBundle(tokenBundle);

@@ -10,6 +10,7 @@ activo es `2026-09-19-home-feature-plan.md`.
 | `2026-09-15-liked-songs.md` | 2026-09-15 | Pantalla `/songs` con infinite scroll + shuffle de biblioteca completa — `4c6760b` |
 | `2026-09-15-build-distribution.md` | 2026-09-15 | Causas raíz de build/packaging corregidas (postinstall, `electronDist`, Node 22) — `3126d03` |
 | `2026-11-16-reproductor-completo-fases-r-a-8.md` | 2026-11-15/16 | Motor web de TIDAL, reproductor completo, play counts + smart shuffle, Turso, control remoto, Favorites, copia local de la biblioteca |
+| `2026-11-17-details-y-windows.md` | 2026-11-16/17 | Phase 9 (`details.md`): configuración sin `.env`, Now playing con letras y créditos, edición de playlists; Windows: pantalla en blanco resuelta y sonido con la firma VMP de castlabs EVS |
 
 Pendiente heredado de build-distribution: validar `npm install` + `npm run dev` +
 `npm run package:win` en la W11 (→ `2026-09-19-home-feature-plan.md`).

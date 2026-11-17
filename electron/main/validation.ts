@@ -169,6 +169,51 @@ export function resolveTidalAppCredentials(
   return stored ? { credentials: stored, source: "stored" } : null;
 }
 
+export const DEFAULT_OAUTH_REDIRECT_URI = "http://127.0.0.1:8899/tidal-callback";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
+
+export interface OAuthRedirect {
+  // Sent to TIDAL exactly as written: it must match the Dashboard character by character.
+  uri: string;
+  host: string;
+  port: number;
+  path: string;
+}
+
+// TIDAL_REDIRECT_URI (development only) changes where the Dashboard login comes
+// back to. The app listens there itself, so only a loopback http URL with an
+// explicit port and a path works; anything else is refused instead of failing
+// later with TIDAL's error 11102.
+export function resolveOAuthRedirect(configured: string | undefined): OAuthRedirect {
+  const uri = configured?.trim() || DEFAULT_OAUTH_REDIRECT_URI;
+  const refuse = (): never => {
+    throw new Error(
+      `TIDAL_REDIRECT_URI must look like ${DEFAULT_OAUTH_REDIRECT_URI} (http, 127.0.0.1 or localhost, ` +
+        "a port from 1024 to 65535 and a path).",
+    );
+  };
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return refuse();
+  }
+  const port = Number(parsed.port);
+  const isValid =
+    parsed.protocol === "http:" &&
+    LOOPBACK_HOSTS.has(parsed.hostname) &&
+    Number.isInteger(port) &&
+    port >= 1024 &&
+    port <= 65535 &&
+    parsed.pathname.length > 1 &&
+    !parsed.search &&
+    !parsed.hash &&
+    !parsed.username &&
+    !parsed.password;
+  if (!isValid) return refuse();
+  return { uri, host: parsed.hostname, port, path: parsed.pathname };
+}
+
 export interface TursoConfig {
   databaseUrl: string;
   authToken: string;
