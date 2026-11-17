@@ -152,7 +152,7 @@ El usuario usa la versión empaquetada (AppImage; en Windows el .exe) y anotó e
 ## Resultado (2026-11-16)
 
 Seis fases hechas, verificadas en la app real (perfil copiado en `.tmp/profile`) y subidas a
-`fable-dev`: 31a84e7, c6ca94a, 4218756, f1e32b5, a521166, 7965dca. Paquetes 0.4.0 en `dist/`
+`fable-dev`: 31a84e7, c6ca94a, 4218756, f1e32b5, a521166, 7965dca. Paquetes 0.4.0 en `dist/` (luego el usuario subió la versión a 0.5.0)
 (AppImage, .deb, zip de Windows). El AppImage arranca sin `.env` y sincroniza con Turso
 configurado desde Settings.
 
@@ -167,8 +167,52 @@ Hallazgos y decisiones a revisar por el usuario:
   `settings.ini`; si la app no se lanza desde la carpeta con `.env`, pedirá el Client ID/Secret de
   TIDAL una vez, y Turso se configura en Settings → Play count sync.
 
+## Traspaso a Windows (siguiente sesión)
+
+`fable-dev` ya está fusionada en `main` (PR #1, versión 0.5.0). Nada de lo de Windows se pudo
+probar en Windows: los cambios de la Fase 2 son hipótesis y herramientas de diagnóstico.
+
+**Preparar el entorno**
+- La nota de `CLAUDE.md` sobre Node 26 y `nvm exec 22` es de la máquina Linux. En Windows basta
+  con `nvm install 22 && nvm use 22` (nvm-windows) y después `npm install`. El `postinstall`
+  descarga el Electron de Castlabs para Windows.
+- `npm run dev` en Windows corre sin los flags de Linux (`scripts/runElectron.mjs`).
+- Los scripts de prueba de `.tmp/` (`start.sh`, `cdp-eval.mjs`, perfil copiado) son de Linux y no
+  están en git. En Windows se puede usar `node scripts/runElectron.mjs dev
+  --remote-debugging-port=9222` con `scripts/driveApp.mjs`, y `WAVES_USER_DATA_DIRECTORY` para
+  probar con un perfil aparte.
+- Una carpeta de datos nueva no tiene `.env` ni credenciales: la app pide el Client ID y el Secret
+  de TIDAL, y Turso se configura en Settings → Play count sync.
+
+**Pantalla en blanco del `.exe`: qué se cambió a ciegas**
+- `BrowserRouter` → `HashRouter` (`src/App.tsx`). En Windows la página es
+  `file:///C:/…/index.html`, una ruta que ninguna ruta de React reconoce: la causa más probable.
+- Si `index.html` no carga, se muestra una página de error con la ruta del log
+  (`watchWindowHealth` en `electron/main/index.ts`). Un error de React muestra `AppErrorBoundary`.
+- `components.whenReady()` de Widevine tiene un tiempo máximo de 20 s (`waitForWidevine`); antes
+  podía no responder nunca y la ventana no llegaba a crearse.
+- `resources/icon.ico` se regeneró con todos los tamaños hasta 256 px (NSIS pide 256).
+- Si sigue en blanco: leer `%APPDATA%\waves-desktop\logs\main.log` (primera línea
+  `waves: starting 0.5.0 on win32 …`), y si no existe, la app no llegó a arrancar el proceso
+  principal.
+
+**Sin sonido en `npm run dev`: cómo diagnosticarlo**
+- A los 3 s de cada canción el log escribe una línea `web-player: playing <id> (<calidad>), page
+  volume N, media [...]` con el estado de los `<audio>`/`<video>` de la página de TIDAL: volumen,
+  `muted`, `readyState`, si tiene MediaKeys y el error del elemento.
+  - `readyState` bajo (0-1) o sin MediaKeys: no llega audio descifrado, apunta a DRM o licencia.
+  - Todo correcto pero sin sonido: dispositivo de salida o volumen de Windows.
+- Las líneas `web-player page error|warning:` (errores de DRM/EME de la página), `web-player: page process gone` y `process gone:` (proceso
+  de audio o GPU caído) también salen en el log.
+- `WAVES_SHOW_ENGINE=1` muestra la ventana del motor (DevTools disponibles) para ver si el
+  reproductor web de TIDAL suena por sí solo.
+- Hipótesis principal sin confirmar: en Windows, Widevine de Castlabs puede necesitar la firma VMP
+  (servicio EVS de castlabs, cuenta gratuita; `python -m castlabs_evs.vmp sign-pkg <carpeta>`) y,
+  sin ella, TIDAL puede negar la licencia o servir audio que no se descifra. En Linux no hace
+  falta. Comprobar primero con el log antes de firmar.
+
 ## Pendiente heredado
-- Validar en Windows 11 el `.zip` portable 0.4.0 (o generar el instalador NSIS allí). Si la
+- Validar en Windows 11 el `.zip` portable (`npm run package:win`) o el instalador NSIS generado allí. Si la
   ventana sale en blanco o no suena, leer `%APPDATA%\waves-desktop\logs\main.log` (Settings →
   App data → Open folder): registra fallos de carga y el estado del audio de cada canción.
 - Probar el control remoto con un teléfono real (y abrir el puerto 47836 en firewalld si lo bloquea).
