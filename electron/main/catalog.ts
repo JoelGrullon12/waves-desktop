@@ -85,6 +85,7 @@ interface AlbumDetail {
 }
 
 interface PlaylistDetail {
+  description?: string | null;
   id: string;
   title: string;
   cover: string | null;
@@ -627,6 +628,7 @@ export async function getPlaylistDetail(playlistId: string): Promise<PlaylistDet
     title: attributeString(resource, "name") ?? "",
     cover: artworkFileHref(relationshipDataIds(resource, "coverArt")[0], byId, HOME_ARTWORK_WIDTH),
     playlistType: attributeString(resource, "playlistType"),
+    description: attributeString(resource, "description")?.trim() || null,
     numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
     duration: iso8601DurationToSeconds(attributeString(resource, "duration") ?? ""),
   };

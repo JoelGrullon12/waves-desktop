@@ -3,6 +3,7 @@ import { Loader2, Play, Shuffle, User } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { MediaGrid } from "@/components/media/MediaGrid";
+import { ZoomableImage } from "@/components/media/ZoomableImage";
 import { TrackList } from "@/components/tracks/TrackList";
 import { Button } from "@/components/ui/button";
 import { useMediaActions } from "@/hooks/useMediaActions";
@@ -84,7 +85,12 @@ export function ArtistView() {
     <div className="p-6">
       <header className="mb-8 flex items-end gap-5">
         {picture ? (
-          <img src={picture} alt="" className="h-36 w-36 shrink-0 rounded-full object-cover" />
+          <ZoomableImage
+            src={picture}
+            alt="Artist picture"
+            className="h-36 w-36 rounded-full object-cover"
+            buttonClassName="rounded-full"
+          />
         ) : (
           <div className="flex h-36 w-36 shrink-0 items-center justify-center rounded-full bg-muted">
             <User className="size-10 text-muted-foreground" aria-hidden />

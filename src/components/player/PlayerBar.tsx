@@ -12,6 +12,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Link } from "react-router";
+import { ZoomableImage } from "@/components/media/ZoomableImage";
 import { ArtistLinks } from "@/components/tracks/ArtistLinks";
 import { Button } from "@/components/ui/button";
 import { formatAudioFormat, formatDuration } from "@/lib/format";
@@ -20,6 +21,10 @@ import { artworkUrl } from "@/lib/tidalImage";
 import { useIsLiked, useLikedStore } from "@/store/likedStore";
 import { usePlayerStore } from "@/store/playerStore";
 import { useQueueStore } from "@/store/queueStore";
+
+// A filled circle behind an active toggle: the icon alone (bold or not) is
+// hard to tell apart.
+const ACTIVE_TOGGLE_CLASS = "rounded-full bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary";
 
 const REPEAT_LABELS: Record<RepeatMode, string> = {
   off: "Repeat is off",
@@ -43,7 +48,7 @@ function RepeatButton() {
       aria-label={REPEAT_LABELS[repeatMode]}
       title={REPEAT_LABELS[repeatMode]}
       data-repeat-mode={repeatMode}
-      className={`relative ${isActive ? "text-primary" : "text-muted-foreground"}`}
+      className={`relative rounded-full ${isActive ? ACTIVE_TOGGLE_CLASS : "text-muted-foreground"}`}
     >
       <Icon className="size-4" aria-hidden />
       {/* Tells "one more time" apart from "until I say stop". */}
@@ -122,10 +127,11 @@ export function PlayerBar() {
         {currentTrack ? (
           <>
             {artwork ? (
-              <img
+              <ZoomableImage
                 src={artwork}
                 alt={`${currentTrack.album?.title ?? "Album"} artwork`}
-                className="h-12 w-12 shrink-0 rounded object-cover"
+                className="h-12 w-12 rounded object-cover"
+                buttonClassName="rounded"
               />
             ) : (
               <div className="h-12 w-12 shrink-0 rounded bg-muted" />
@@ -162,7 +168,7 @@ export function PlayerBar() {
             aria-label={shuffleEnabled ? "Shuffle is on" : "Shuffle is off"}
             title={shuffleEnabled ? "Shuffle is on" : "Shuffle is off"}
             aria-pressed={shuffleEnabled}
-            className={shuffleEnabled ? "text-primary" : "text-muted-foreground"}
+            className={`rounded-full ${shuffleEnabled ? ACTIVE_TOGGLE_CLASS : "text-muted-foreground"}`}
           >
             <Shuffle className="size-4" aria-hidden />
           </Button>

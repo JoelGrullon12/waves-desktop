@@ -14,6 +14,7 @@ export const PREFERENCE_KEYS = {
   favoritesWindowDays: "favorites.windowDays",
   theme: "ui.theme",
   sidebarCollapsed: "ui.sidebarCollapsed",
+  sidebarShowMore: "ui.sidebarShowMore",
   sidebarPlaylistSort: "ui.sidebarPlaylistSort",
   sidebarPlaylistSortDescending: "ui.sidebarPlaylistSortDescending",
   libraryPlaylistSort: "library.playlistSort",

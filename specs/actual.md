@@ -158,7 +158,7 @@ El usuario usa la versión empaquetada (AppImage; en Windows el .exe) y anotó e
 ## Progreso
 - [x] Fase 1 — Configuración sin `.env`
 - [x] Fase 2 — Windows y log en archivo (a ciegas; falta probar en Windows con `logs/main.log`)
-- [ ] Fase 3 — Barra lateral y detalles visuales
+- [x] Fase 3 — Barra lateral y detalles visuales
 - [ ] Fase 4 — Listas, cola y barra inferior
 - [ ] Fase 5 — Now playing, letras y créditos
 - [ ] Fase 6 — Editar playlists y créditos del álbum

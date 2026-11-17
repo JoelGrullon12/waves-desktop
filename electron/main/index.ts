@@ -129,18 +129,26 @@ async function createWindow(): Promise<void> {
   }
 }
 
+let isQuitting = false;
+app.on("before-quit", () => {
+  isQuitting = true;
+});
+
 // A page that fails to load or crashes would otherwise leave a blank window
 // with no clue; this logs why and shows it.
 function watchWindowHealth(mainWindow: BrowserWindow): void {
   const contents = mainWindow.webContents;
   contents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-    if (!isMainFrame) return;
+    // -3 is a navigation replaced by another one, not a failure.
+    if (!isMainFrame || isQuitting || errorCode === -3) return;
     console.error(`window: could not load ${validatedUrl}: ${errorDescription} (${errorCode})`);
     showErrorPage(mainWindow, `The app page could not be loaded: ${errorDescription} (${errorCode}).`);
   });
   contents.on("render-process-gone", (_event, details) => {
     console.error(`window: page process gone (${details.reason}, exit code ${details.exitCode})`);
-    if (details.reason !== "clean-exit") {
+    // "killed" is the system or the user ending it (also on shutdown); only a
+    // real failure gets the error page.
+    if (!isQuitting && details.reason !== "clean-exit" && details.reason !== "killed") {
       showErrorPage(mainWindow, `The app page stopped (${details.reason}).`);
     }
   });

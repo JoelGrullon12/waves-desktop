@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Music, Play, Shuffle, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
+import { ZoomableImage } from "@/components/media/ZoomableImage";
 import { TrackList } from "@/components/tracks/TrackList";
 import { Button } from "@/components/ui/button";
 import { useTrackCollection } from "@/hooks/useTrackCollection";
@@ -28,6 +29,7 @@ interface DetailHeader {
   title: string;
   cover?: string | null;
   subtitle: string;
+  description?: string | null;
 }
 
 function subtitleParts(parts: Array<string | null | undefined>): string {
@@ -105,6 +107,7 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
         kind: "Playlist",
         title: playlist.title,
         cover: playlist.cover,
+        description: playlist.description,
         subtitle: subtitleParts([
           playlist.numberOfItems > 0 ? `${playlist.numberOfItems} songs` : null,
           playlist.duration > 0 ? formatTotalDuration(playlist.duration) : null,
@@ -161,10 +164,10 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
     <div className="p-6">
       <header className="mb-6 flex items-end gap-4">
         {cover ? (
-          <img
+          <ZoomableImage
             src={cover}
             alt={`${header?.title ?? "Media"} artwork`}
-            className="h-36 w-36 shrink-0 rounded-lg object-cover"
+            className="h-36 w-36 rounded-lg object-cover"
           />
         ) : (
           <div className="flex h-36 w-36 shrink-0 items-center justify-center rounded-lg bg-muted">
@@ -177,6 +180,15 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
           </p>
           <h1 className="truncate text-2xl font-bold">{header?.title ?? "—"}</h1>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">{header?.subtitle ?? ""}</p>
+          {header?.description && (
+            <p
+              className="mt-1.5 line-clamp-3 max-w-2xl text-sm whitespace-pre-line text-muted-foreground"
+              title={header.description}
+              data-testid="playlist-description"
+            >
+              {header.description}
+            </p>
+          )}
           <div className="mt-3 flex items-center gap-2">
             <Button onClick={() => void collection.startPlayback(false)} disabled={!canPlay}>
               {collection.isPreparing ? (

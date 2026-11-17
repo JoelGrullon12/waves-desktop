@@ -384,9 +384,10 @@ waves-desktop/
     │
     ├── components/
     │   ├── layout/                 # AppShell, Sidebar, SidebarPlaylists
-    │   ├── media/                  # MediaCard, MediaGrid, HorizontalScroll, ArtistCardLink, SortControl
+    │   ├── media/                  # MediaCard, MediaGrid, HorizontalScroll, ArtistCardLink, SortControl,
+    │   │                           #   ZoomableImage (click-to-enlarge artwork viewer)
     │   ├── player/                 # PlayerBar, QueuePanel
-    │   ├── settings/               # RemoteControlSection, LibraryCacheSection
+    │   ├── settings/               # One component per Settings section (sync, remote, cache, TIDAL app, app data)
     │   ├── tracks/                 # TrackList, TrackContextMenu, AddToPlaylistsDialog, ArtistLinks
     │   └── ui/                     # shadcn/ui primitives
     │

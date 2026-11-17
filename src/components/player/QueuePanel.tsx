@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, Music2, X } from "lucide-react";
+import { artworkUrl } from "@/lib/tidalImage";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDuration } from "@/lib/format";
@@ -80,12 +81,21 @@ export function QueuePanel() {
                   }`}
                   onClick={() => void playTrackAt(index)}
                 >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                    <Music2
-                      className={`size-4 ${isCurrent ? "text-primary" : "text-muted-foreground"}`}
-                      aria-hidden
+                  {track.album?.cover ? (
+                    <img
+                      src={artworkUrl(track.album.cover, 80)}
+                      alt=""
+                      loading="lazy"
+                      className={`size-9 shrink-0 rounded object-cover ${isCurrent ? "ring-2 ring-primary" : ""}`}
                     />
-                  </div>
+                  ) : (
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded bg-muted">
+                      <Music2
+                        className={`size-4 ${isCurrent ? "text-primary" : "text-muted-foreground"}`}
+                        aria-hidden
+                      />
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <p
                       className={`truncate text-sm ${

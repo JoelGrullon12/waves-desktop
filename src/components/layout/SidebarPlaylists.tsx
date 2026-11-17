@@ -58,7 +58,7 @@ export function SidebarPlaylists({ isRail }: { isRail: boolean }) {
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-1">
+      <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto px-2 pb-1">
         {playlistsQuery.isLoading && (
           <div className="flex justify-center py-4">
             <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
@@ -79,6 +79,9 @@ export function SidebarPlaylists({ isRail }: { isRail: boolean }) {
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-md px-1.5 py-1 text-sm transition-colors",
+                  // On the rail only the cover is left; keep it centred.
+                  "max-lg:justify-center",
+                  isRail && "justify-center",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent/70",

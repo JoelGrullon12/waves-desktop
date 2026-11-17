@@ -59,6 +59,8 @@ export interface PlaylistDetail {
   title: string;
   cover?: string | null;
   playlistType?: string | null;
+  // What the owner wrote about the playlist; null when empty.
+  description?: string | null;
   numberOfItems: number;
   duration: number;
 }
