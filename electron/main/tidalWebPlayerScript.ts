@@ -256,8 +256,24 @@ const ENGINE_INSTALL_SOURCE = `
     }
   }
 
+  // Read-only look at the page's media elements, written to the log once per
+  // track: it tells "TIDAL refused the stream" apart from "it plays muted".
+  const mediaDiagnostics = () => [...document.querySelectorAll("audio, video")].map((element) => ({
+    tag: element.tagName.toLowerCase(),
+    paused: element.paused,
+    muted: element.muted,
+    volume: element.volume,
+    currentTime: Math.round(element.currentTime * 10) / 10,
+    readyState: element.readyState,
+    networkState: element.networkState,
+    hasMediaKeys: element.mediaKeys != null,
+    errorCode: element.error ? element.error.code : null,
+    errorMessage: element.error ? element.error.message : null,
+  }));
+
   window.${ENGINE_GLOBAL} = {
     snapshot,
+    mediaDiagnostics,
     play,
     setNext,
     seek,
@@ -277,6 +293,7 @@ const ENGINE_INSTALL_SOURCE = `
 
 export type EngineMethod =
   | "snapshot"
+  | "mediaDiagnostics"
   | "play"
   | "setNext"
   | "seek"

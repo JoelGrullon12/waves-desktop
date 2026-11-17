@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { HashRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAppliedTheme } from "@/hooks/useAppliedTheme";
 import { errorMessage, logToTerminal } from "@/lib/logger";
@@ -74,7 +74,9 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      {/* Hash routes: the packaged app is a file:// page, where a path-based URL
+          would point at the disk on reload (and carries a drive letter on Windows). */}
+      <HashRouter>
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<HomeView />} />
@@ -106,7 +108,7 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </QueryClientProvider>
   );
 }

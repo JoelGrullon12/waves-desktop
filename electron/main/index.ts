@@ -1,9 +1,10 @@
 import { app, BrowserWindow, components } from "electron";
 import path from "node:path";
-import { registerAppDataHandlers } from "./appDataLocation";
+import { dataDirectory, registerAppDataHandlers } from "./appDataLocation";
 import { SECRETS_FILE } from "./appSecrets";
 import { registerAuthHandlers } from "./auth";
 import { registerCatalogHandlers } from "./catalog";
+import { currentLogFile, startFileLog } from "./fileLog";
 import { closeDatabase, DATABASE_FILES, initializeDatabase, isDatabaseInDataDirectory } from "./database";
 import { registerLibraryHandlers } from "./libraryCatalog";
 import { CACHE_STATUS_CHANNEL, getMetadataCache, registerMetadataCacheHandlers } from "./metadataCache";
@@ -34,6 +35,16 @@ const debugUserDataDirectory = process.env["WAVES_USER_DATA_DIRECTORY"];
 if (debugUserDataDirectory && path.isAbsolute(debugUserDataDirectory)) {
   app.setPath("userData", debugUserDataDirectory);
 }
+
+startFileLog(dataDirectory());
+console.info(
+  `waves: starting ${app.getVersion()} on ${process.platform} ${process.arch} ` +
+    `(Electron ${process.versions.electron}, ${app.isPackaged ? "packaged" : "development"})`,
+);
+
+// How long the window waits for the Widevine Component Updater. It has been
+// seen to never answer; the window must open anyway.
+const WIDEVINE_WAIT_MS = 20_000;
 
 // Electron is launched with `--no-sandbox` (see package.json scripts and
 // electron-builder.yml). On Linux, the npm-installed Electron fork has no SUID
@@ -76,6 +87,7 @@ async function createWindow(): Promise<void> {
   });
 
   const developmentRenderUrl = process.env["ELECTRON_RENDERER_URL"];
+  watchWindowHealth(mainWindow);
 
   // The renderer only ever shows the app's own pages; navigation elsewhere and
   // new windows are blocked so a stray link can never load remote content next
@@ -117,6 +129,66 @@ async function createWindow(): Promise<void> {
   }
 }
 
+// A page that fails to load or crashes would otherwise leave a blank window
+// with no clue; this logs why and shows it.
+function watchWindowHealth(mainWindow: BrowserWindow): void {
+  const contents = mainWindow.webContents;
+  contents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (!isMainFrame) return;
+    console.error(`window: could not load ${validatedUrl}: ${errorDescription} (${errorCode})`);
+    showErrorPage(mainWindow, `The app page could not be loaded: ${errorDescription} (${errorCode}).`);
+  });
+  contents.on("render-process-gone", (_event, details) => {
+    console.error(`window: page process gone (${details.reason}, exit code ${details.exitCode})`);
+    if (details.reason !== "clean-exit") {
+      showErrorPage(mainWindow, `The app page stopped (${details.reason}).`);
+    }
+  });
+  contents.on("preload-error", (_event, preloadPath, error) => {
+    console.error(`window: preload ${preloadPath} failed: ${error.stack ?? error.message}`);
+  });
+  contents.on("console-message", (event) => {
+    if (event.level === "error" || event.level === "warning") {
+      console.warn(`renderer ${event.level}: ${event.message} (${event.sourceId}:${event.lineNumber})`);
+    }
+  });
+}
+
+function showErrorPage(mainWindow: BrowserWindow, reason: string): void {
+  if (mainWindow.isDestroyed()) return;
+  const logFile = currentLogFile() ?? "(no log file)";
+  const escape = (text: string) => text.replace(/[&<>"]/g, (character) => `&#${character.charCodeAt(0)};`);
+  const page = `<!doctype html><meta charset="utf-8"><title>Waves</title>
+<body style="font-family:system-ui,sans-serif;background:#111;color:#eee;padding:2rem;line-height:1.5">
+<h1 style="font-size:1.25rem">Waves could not start its window</h1>
+<p>${escape(reason)}</p>
+<p>Details are in the log file:<br><code>${escape(logFile)}</code></p></body>`;
+  void mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`).catch(() => undefined);
+}
+
+// Utility processes (audio, the Widevine CDM, GPU) can die without taking the
+// window with them; silent playback is one symptom.
+app.on("child-process-gone", (_event, details) => {
+  console.error(
+    `process gone: ${details.type}${details.name ? ` (${details.name})` : ""} ${details.reason}, exit code ${details.exitCode}`,
+  );
+});
+
+async function waitForWidevine(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), WIDEVINE_WAIT_MS);
+  });
+  try {
+    const outcome = await Promise.race([components.whenReady().then(() => "ready" as const), timeout]);
+    if (outcome === "timeout") {
+      console.error(`Widevine component did not answer within ${WIDEVINE_WAIT_MS} ms`, components.status());
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 app.whenReady().then(async () => {
   // Castlabs ECS: the Widevine CDM is fetched and installed by the Component
   // Updater. Await it before creating the window so DRM is ready on first
@@ -126,7 +198,7 @@ app.whenReady().then(async () => {
   // for the CDM, so DRM works on this very launch.
   logWidevineInstall(installWidevineFromCache());
   try {
-    await components.whenReady();
+    await waitForWidevine();
   } catch (reason) {
     // The status shows which component (if any) was downloaded but not
     // installed, which is how a missing CDM shows up as DRM error S6001.

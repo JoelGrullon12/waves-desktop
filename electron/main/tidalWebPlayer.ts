@@ -27,6 +27,9 @@ const READY_POLL_INTERVAL_MS = 250;
 const READY_TIMEOUT_MS = 45_000;
 const MAX_SEEK_SECONDS = 24 * 60 * 60;
 const SHOW_ENGINE_WINDOW = process.env["WAVES_SHOW_ENGINE"] === "1";
+// Page console errors worth keeping in the log; the rest of TIDAL's page noise
+// is left out.
+const DRM_MESSAGE_PATTERN = /widevine|drm|\beme\b|mediakey|licen[cs]e|decod|audio|playback|media/i;
 
 export const PLAYER_STATE_CHANNEL = "player:state";
 export const PLAYER_MEDIA_KEY_CHANNEL = "player:media-key";
@@ -65,6 +68,7 @@ export class TidalWebPlayer {
   private isPolling = false;
   // Kept for the timeout message: tells a slow page apart from a broken script.
   private lastReadError: string | null = null;
+  private lastDiagnosedPlaybackId: string | null = null;
   private readonly listeners = new Set<SnapshotListener>();
   private readonly mediaKeyListeners = new Set<MediaKeyListener>();
 
@@ -141,6 +145,28 @@ export class TidalWebPlayer {
 
   private publish(snapshot: EngineSnapshot): void {
     for (const listener of this.listeners) listener(snapshot);
+    this.logMediaOnce(snapshot);
+  }
+
+  // A few seconds into each playback, the state of the page's media elements
+  // goes to the log (see fileLog.ts), so silent playback can be diagnosed on a
+  // machine without developer tools.
+  private logMediaOnce(snapshot: EngineSnapshot): void {
+    const playbackId = snapshot.playbackId;
+    if (!playbackId || playbackId === this.lastDiagnosedPlaybackId) return;
+    if (snapshot.playbackState !== "PLAYING" || snapshot.positionSeconds < 3) return;
+    this.lastDiagnosedPlaybackId = playbackId;
+    const engineWindow = this.engineWindow;
+    if (!engineWindow || engineWindow.isDestroyed()) return;
+    void engineWindow.webContents
+      .executeJavaScript(buildEngineCall("mediaDiagnostics"), true)
+      .then((elements: unknown) => {
+        console.info(
+          `web-player: playing ${snapshot.trackId} (${snapshot.audioQuality ?? "unknown quality"}), ` +
+            `page volume ${snapshot.volume}, media ${JSON.stringify(elements)}`,
+        );
+      })
+      .catch(() => undefined);
   }
 
   private async callQuietly(method: EngineMethod, ...methodArguments: unknown[]): Promise<boolean> {
@@ -194,6 +220,9 @@ export class TidalWebPlayer {
     this.engineWindow = createdWindow;
     createdWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     createdWindow.webContents.on("console-message", (event) => {
+      if ((event.level === "error" || event.level === "warning") && DRM_MESSAGE_PATTERN.test(event.message)) {
+        console.warn(`web-player page ${event.level}: ${event.message.slice(0, 500)}`);
+      }
       if (!event.message.startsWith(MEDIA_KEY_MARKER)) return;
       const command = event.message.slice(MEDIA_KEY_MARKER.length);
       if (command !== "next" && command !== "previous") return;

@@ -107,7 +107,8 @@ Designed behavior: on **first launch**, Electron's Component Updater downloads a
 the CDM; the main process awaits `components.whenReady()` before creating the
 `BrowserWindow`. In this environment that auto-install FAILED — `whenReady()` rejects with
 "No component available" even though Google's update endpoints are reachable (the updater
-returns no component for this request). `components.whenReady()` is wrapped in try/catch in
+returns no component for this request). `components.whenReady()` is wrapped in try/catch and a
+20 s timeout (it has also been seen to never answer) in
 `electron/main/index.ts` so the window still opens.
 
 **Automatic install (2026-10-23):** the Component Updater downloads the official package
@@ -206,6 +207,13 @@ In the data folder:
 - `app-secrets` — one safeStorage-encrypted JSON (`appSecrets.ts`): TIDAL client id/secret,
   Turso URL/token, the remote's pairing token. No IPC handler returns these values.
 - `waves-desktop.db` — SQLite (unless `LOCAL_SQLITE_PATH` points elsewhere).
+- `logs/main.log` (`fileLog.ts`, rotated at 2 MB into `main.old.log`) — everything the main
+  process prints, renderer errors/warnings, failed loads and crashed processes of the window,
+  utility processes that die (`child-process-gone`), DRM-looking console errors of the engine page
+  and, once per playback, the state of the engine page's media elements (volume, muted,
+  readyState, MediaKeys, error). First thing to read when a packaged build misbehaves, above all on
+  Windows. A page that fails to load shows an error page with the log path instead of staying
+  blank; a React render error shows `AppErrorBoundary`.
 
 Settings edits Turso (checked with `SELECT 1` before saving, sync restarts without a relaunch),
 the remote's port and the TIDAL credentials. A value set in `.env` wins over the saved one
@@ -332,6 +340,7 @@ waves-desktop/
 │   │   ├── tidalWebPlayerScript.ts # Everything specific to TIDAL's page (Redux actions, snapshot)
 │   │   ├── appDataLocation.ts      # Data folder: where it is, moving it + IPC
 │   │   ├── appSecrets.ts           # Encrypted secrets file (TIDAL app, Turso, remote token)
+│   │   ├── fileLog.ts              # Copies the main process console into logs/main.log
 │   │   ├── iniFile.ts              # Pure INI reader/writer
 │   │   ├── preferencesFile.ts      # settings.ini store + one-time import from SQLite
 │   │   ├── secureIpc.ts            # handleTrusted: sender check for every IPC handler
@@ -366,9 +375,8 @@ waves-desktop/
 │   └── packageApp.mjs              # package:*: fetches the target platform's Electron build, runs electron-builder
 │
 ├── resources/
-│   ├── icon.png                    # Placeholder (AppImage/deb) — replace when real branding exists
-│   ├── icon.ico                    # Placeholder (nsis installer)
-│   └── icon.icns
+│   ├── icon.png                    # App icon (AppImage/deb, 2000×2000)
+│   └── icon.ico                    # Built from icon.png: magick icon.png -define icon:auto-resize=256,128,64,48,32,24,16 icon.ico
 │
 └── src/                            # React renderer process
     ├── main.tsx
@@ -619,7 +627,8 @@ TanStack Query for server state (catalog): caching, deduplication, background re
 the box.
 
 ### React Router v8
-Declarative mode, flat route tree. Current routes: `/` (Home), `/songs` (liked tracks),
+Declarative mode, flat route tree, **hash routes** (`HashRouter`): the packaged app is a `file://`
+page, where a path-based URL points at the disk on reload and carries a drive letter on Windows. Current routes: `/` (Home), `/songs` (liked tracks),
 `/search`, `/favorites`, `/library`, `/releases`, `/artists/:artistId`, `/settings`,
 `/albums/:albumId`, `/playlists/:playlistId`, `/mixes/:mixType/:mixId`. The phone remote is not a
 route: it is a separate page served by the main process.
