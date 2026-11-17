@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld("api", {
   getCredentialsStatus: () => ipcRenderer.invoke("credentials:get-status"),
   saveCredentials: (clientId: string, clientSecret: string) =>
     ipcRenderer.invoke("credentials:save", clientId, clientSecret),
+  clearCredentials: () => ipcRenderer.invoke("credentials:clear"),
+
+  getAppDataInfo: () => ipcRenderer.invoke("app-data:get-info"),
+  openAppDataFolder: () => ipcRenderer.invoke("app-data:open-folder"),
+  changeAppDataLocation: () => ipcRenderer.invoke("app-data:change-location"),
+  useDefaultAppDataLocation: () => ipcRenderer.invoke("app-data:use-default-location"),
 
   login: () => ipcRenderer.invoke("auth:login"),
   logout: () => ipcRenderer.invoke("auth:logout"),
@@ -72,10 +78,15 @@ contextBridge.exposeInMainWorld("api", {
 
   getSyncStatus: () => ipcRenderer.invoke("sync:get-status"),
   runSyncNow: () => ipcRenderer.invoke("sync:run-now"),
+  getSyncConfig: () => ipcRenderer.invoke("sync:get-config"),
+  saveSyncConfig: (databaseUrl: string, authToken: string) =>
+    ipcRenderer.invoke("sync:save-config", databaseUrl, authToken),
+  clearSyncConfig: () => ipcRenderer.invoke("sync:clear-config"),
 
   getRemoteControlInfo: () => ipcRenderer.invoke("remote:get-info"),
   setRemoteControlEnabled: (enabled: boolean) => ipcRenderer.invoke("remote:set-enabled", enabled),
   regenerateRemoteControlToken: () => ipcRenderer.invoke("remote:regenerate-token"),
+  setRemoteControlPort: (port: number) => ipcRenderer.invoke("remote:set-port", port),
   publishRemoteState: (state: unknown) => ipcRenderer.invoke("remote:publish-state", state),
   onRemoteCommand: (listener: (command: unknown) => void) => {
     const forward = (_event: IpcRendererEvent, command: unknown) => listener(command);

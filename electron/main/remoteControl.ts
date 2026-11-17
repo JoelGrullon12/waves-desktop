@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { networkInterfaces } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
-import { getDatabase } from "./database";
-import { PreferencesRepository } from "./preferencesRepository";
+import { readAppSecrets, updateAppSecrets } from "./appSecrets";
+import type { PreferencesFile } from "./preferencesFile";
+import { getPreferences } from "./preferencesRepository";
 import { REMOTE_CONTROL_PAGE } from "./remoteControlPage";
 import {
   EMPTY_REMOTE_STATE,
@@ -14,6 +15,7 @@ import {
   type RemoteState,
 } from "./remoteProtocol";
 import { handleTrusted } from "./secureIpc";
+import { requireNetworkPort } from "./validation";
 
 // Phone remote: a small web page served by the app on the local network. The
 // phone opens it by scanning a QR code (no app to install) and sends play /
@@ -26,7 +28,7 @@ import { handleTrusted } from "./secureIpc";
 
 const DEFAULT_PORT = 47836;
 const ENABLED_PREFERENCE = "remote.enabled";
-const TOKEN_PREFERENCE = "remote.pairingToken";
+const PORT_PREFERENCE = "remote.port";
 const PAIRING_TOKEN_BYTES = 24;
 const MAX_CLIENTS = 8;
 
@@ -36,6 +38,8 @@ export interface RemoteControlInfo {
   isEnabled: boolean;
   isRunning: boolean;
   port: number;
+  // REMOTE_CONTROL_WEBSOCKET_PORT in .env decides the port; Settings can not.
+  isPortFromEnvironment: boolean;
   // Address a phone on the same network opens; null when no network is up.
   url: string | null;
   connectedClients: number;
@@ -44,9 +48,15 @@ export interface RemoteControlInfo {
 
 type CommandListener = (command: RemoteCommand) => void;
 
-function configuredPort(): number {
-  const port = Number.parseInt(process.env["REMOTE_CONTROL_WEBSOCKET_PORT"] ?? "", 10);
-  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : DEFAULT_PORT;
+function parsePort(value: string | null | undefined): number | null {
+  const port = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+}
+
+// REMOTE_CONTROL_WEBSOCKET_PORT in .env (development) wins over the port saved
+// in Settings.
+function environmentPort(): number | null {
+  return parsePort(process.env["REMOTE_CONTROL_WEBSOCKET_PORT"]);
 }
 
 // First private IPv4 address of this machine (the one a phone on the same
@@ -67,9 +77,22 @@ export class RemoteControl {
   private state: RemoteState = EMPTY_REMOTE_STATE;
   private lastError: string | null = null;
   private commandListener: CommandListener | null = null;
-  private readonly port = configuredPort();
+  constructor(private readonly preferences: PreferencesFile) {}
 
-  constructor(private readonly preferences: PreferencesRepository) {}
+  private get port(): number {
+    return environmentPort() ?? parsePort(this.preferences.get(PORT_PREFERENCE)) ?? DEFAULT_PORT;
+  }
+
+  // Saves the port and, when the remote is running, restarts it there (paired
+  // phones have to scan the new code).
+  async setPort(port: number): Promise<RemoteControlInfo> {
+    this.preferences.set(PORT_PREFERENCE, String(port));
+    if (this.server) {
+      await this.stop();
+      await this.start();
+    }
+    return this.getInfo();
+  }
 
   onCommand(listener: CommandListener): void {
     this.commandListener = listener;
@@ -89,7 +112,7 @@ export class RemoteControl {
 
   // A new token cuts off every phone paired with the old one.
   async regenerateToken(): Promise<RemoteControlInfo> {
-    this.preferences.set(TOKEN_PREFERENCE, randomBytes(PAIRING_TOKEN_BYTES).toString("hex"));
+    updateAppSecrets({ remotePairingToken: randomBytes(PAIRING_TOKEN_BYTES).toString("hex") });
     for (const client of this.clients) client.close();
     return this.getInfo();
   }
@@ -106,6 +129,7 @@ export class RemoteControl {
       isEnabled: this.isEnabled(),
       isRunning: this.server !== null,
       port: this.port,
+      isPortFromEnvironment: environmentPort() !== null,
       url: address ? `http://${address}:${this.port}/?token=${this.pairingToken()}` : null,
       connectedClients: this.clients.size,
       error: this.lastError,
@@ -127,10 +151,10 @@ export class RemoteControl {
   }
 
   private pairingToken(): string {
-    const stored = this.preferences.get(TOKEN_PREFERENCE);
+    const stored = readAppSecrets().remotePairingToken;
     if (stored) return stored;
     const created = randomBytes(PAIRING_TOKEN_BYTES).toString("hex");
-    this.preferences.set(TOKEN_PREFERENCE, created);
+    updateAppSecrets({ remotePairingToken: created });
     return created;
   }
 
@@ -210,7 +234,7 @@ export class RemoteControl {
 let remoteControl: RemoteControl | null = null;
 
 export function getRemoteControl(): RemoteControl {
-  remoteControl ??= new RemoteControl(new PreferencesRepository(getDatabase()));
+  remoteControl ??= new RemoteControl(getPreferences());
   return remoteControl;
 }
 
@@ -219,6 +243,7 @@ export function registerRemoteControlHandlers(): void {
   handleTrusted("remote:set-enabled", (_event, enabled) =>
     getRemoteControl().setEnabled(enabled === true),
   );
+  handleTrusted("remote:set-port", (_event, port) => getRemoteControl().setPort(requireNetworkPort(port)));
   handleTrusted("remote:regenerate-token", () => getRemoteControl().regenerateToken());
   handleTrusted("remote:publish-state", (_event, state) =>
     getRemoteControl().publishState(sanitizeRemoteState(state)),

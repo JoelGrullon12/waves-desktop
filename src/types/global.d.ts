@@ -1,5 +1,7 @@
 import type { CachedSearchResult } from "@/types/track";
 import type {
+  AppDataInfo,
+  AppDataMoveResult,
   EnginePlayResult,
   EngineSnapshot,
   PlayedTrack,
@@ -8,6 +10,8 @@ import type {
   RemoteControlInfo,
   RemoteState,
   TrackCollectionMembership,
+  SyncConfigInfo,
+  SyncConfigResult,
   SyncStatus,
 } from "@/types/player";
 import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
@@ -35,6 +39,14 @@ declare global {
         clientId: string,
         clientSecret: string,
       ) => Promise<{ success: boolean; error?: string }>;
+      // Removes the credentials saved in the app (.env ones stay in use).
+      clearCredentials: () => Promise<{ configured: boolean; source: "env" | "stored" | null }>;
+      // Folder with settings.ini, the database and the secrets. Changing it
+      // opens a folder picker and restarts the app.
+      getAppDataInfo: () => Promise<AppDataInfo>;
+      openAppDataFolder: () => Promise<{ success: boolean; error?: string }>;
+      changeAppDataLocation: () => Promise<AppDataMoveResult | null>;
+      useDefaultAppDataLocation: () => Promise<AppDataMoveResult>;
       login: () => Promise<{ isAuthenticated: boolean; userId: string | null }>;
       logout: () => Promise<{ isAuthenticated: boolean }>;
       isAuthenticated: () => Promise<boolean>;
@@ -72,7 +84,7 @@ declare global {
       addTracksToPlaylist: (playlistId: string, trackIds: string[]) => Promise<void>;
       createPlaylist: (name: string) => Promise<PlaylistSummary>;
       deletePlaylist: (playlistId: string) => Promise<void>;
-      // Local settings and the saved play queue (SQLite).
+      // Local settings (settings.ini) and the saved play queue (SQLite).
       getPreferences: () => Promise<Record<string, string>>;
       setPreference: (key: string, value: string) => Promise<void>;
       saveQueue: (trackIds: string[]) => Promise<void>;
@@ -87,10 +99,15 @@ declare global {
       // Cloud copy of the play counts (Turso).
       getSyncStatus: () => Promise<SyncStatus>;
       runSyncNow: () => Promise<SyncStatus>;
+      getSyncConfig: () => Promise<SyncConfigInfo>;
+      // Checks the database answers before saving.
+      saveSyncConfig: (databaseUrl: string, authToken: string) => Promise<SyncConfigResult>;
+      clearSyncConfig: () => Promise<SyncConfigResult>;
       // Phone remote served on the local network.
       getRemoteControlInfo: () => Promise<RemoteControlInfo>;
       setRemoteControlEnabled: (enabled: boolean) => Promise<RemoteControlInfo>;
       regenerateRemoteControlToken: () => Promise<RemoteControlInfo>;
+      setRemoteControlPort: (port: number) => Promise<RemoteControlInfo>;
       publishRemoteState: (state: RemoteState) => Promise<void>;
       onRemoteCommand: (listener: (command: RemoteCommand) => void) => () => void;
       // Local copy of the library (liked songs and playlists), off by default.

@@ -11,7 +11,10 @@ import {
   requireResourceId,
   requireResourceIdList,
   requireSearchQuery,
+  parseTursoConfig,
+  requireNetworkPort,
   resolveTidalAppCredentials,
+  resolveTursoConfig,
 } from "./validation";
 
 describe("requireResourceId", () => {
@@ -173,5 +176,62 @@ describe("authorizationCodeFromRedirect", () => {
     expect(authorizationCodeFromRedirect(redirectUri, redirectUri)).toBeNull();
     expect(authorizationCodeFromRedirect(`${redirectUri}?code=`, redirectUri)).toBeNull();
     expect(authorizationCodeFromRedirect("not a url", redirectUri)).toBeNull();
+  });
+});
+
+describe("parseTursoConfig", () => {
+  const token = "eyJhbGciOiJFZERTQSJ9.payload_part-1";
+
+  it.each(["libsql://waves-user.turso.io", "https://waves-user.turso.io", "  libsql://db.example.com  "])(
+    "accepts %s",
+    (url) => {
+      expect(parseTursoConfig(url, ` ${token} `)).toEqual({ databaseUrl: url.trim(), authToken: token });
+    },
+  );
+
+  it.each(["", "waves.turso.io", "http://waves.turso.io", "file:///tmp/db", "libsql://user:pass@db.io", 3])(
+    "rejects the URL %j",
+    (url) => {
+      expect(() => parseTursoConfig(url, token)).toThrow(/database URL|Turso settings/);
+    },
+  );
+
+  it.each(["short", "has spaces in it here", "x".repeat(5000)])("rejects the token %j", (badToken) => {
+    expect(() => parseTursoConfig("libsql://db.turso.io", badToken)).toThrow(/auth token/);
+  });
+});
+
+describe("resolveTursoConfig", () => {
+  const stored = { tursoDatabaseUrl: "libsql://stored.turso.io", tursoAuthToken: "stored-token" };
+
+  it("prefers the environment when both variables are set", () => {
+    const resolved = resolveTursoConfig(
+      { TURSO_DATABASE_URL: "libsql://env.turso.io", TURSO_AUTH_TOKEN: "env-token" },
+      stored,
+    );
+    expect(resolved).toEqual({
+      config: { databaseUrl: "libsql://env.turso.io", authToken: "env-token" },
+      source: "env",
+    });
+  });
+
+  it("falls back to the stored values", () => {
+    expect(resolveTursoConfig({ TURSO_DATABASE_URL: "libsql://env.turso.io" }, stored)?.source).toBe("stored");
+  });
+
+  it("returns null when nothing is configured", () => {
+    expect(resolveTursoConfig({}, {})).toBeNull();
+    expect(resolveTursoConfig({}, { tursoDatabaseUrl: "libsql://only-url.turso.io" })).toBeNull();
+  });
+});
+
+describe("requireNetworkPort", () => {
+  it("accepts unprivileged ports", () => {
+    expect(requireNetworkPort(1024)).toBe(1024);
+    expect(requireNetworkPort(47836)).toBe(47836);
+  });
+
+  it.each([80, 1023, 65536, 4000.5, "47836", null])("rejects %j", (port) => {
+    expect(() => requireNetworkPort(port)).toThrow(/port/);
   });
 });

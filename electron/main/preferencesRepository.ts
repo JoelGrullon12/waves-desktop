@@ -1,35 +1,32 @@
+import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { dataDirectory } from "./appDataLocation";
+import { migrateLegacySecrets } from "./appSecrets";
 import { getDatabase } from "./database";
+import { importDatabasePreferences, PreferencesFile, SETTINGS_FILE } from "./preferencesFile";
 import { handleTrusted } from "./secureIpc";
 import { requirePreferenceKey, requirePreferenceValue, requireResourceIdList } from "./validation";
 
-// Small key/value settings (volume, shuffle, repeat, thresholds...). Values are
-// stored as text; the renderer owns their meaning and serialization.
-export class PreferencesRepository {
-  constructor(private readonly databaseConnection: DatabaseSync) {}
+let preferencesFile: PreferencesFile | null = null;
 
-  getAll(): Record<string, string> {
-    const rows = this.databaseConnection
-      .prepare("SELECT preference_key, preference_value FROM user_preferences")
-      .all() as Array<{ preference_key: string; preference_value: string }>;
-    return Object.fromEntries(rows.map((row) => [row.preference_key, row.preference_value]));
-  }
+// The settings file in the data folder (see preferencesFile.ts).
+export function getPreferences(): PreferencesFile {
+  preferencesFile ??= new PreferencesFile(path.join(dataDirectory(), SETTINGS_FILE));
+  return preferencesFile;
+}
 
-  get(key: string): string | null {
-    const row = this.databaseConnection
-      .prepare("SELECT preference_value FROM user_preferences WHERE preference_key = ?")
-      .get(key) as { preference_value: string } | undefined;
-    return row?.preference_value ?? null;
-  }
+// Kept out of settings.ini: the phone remote's pairing token is a secret.
+const LEGACY_REMOTE_TOKEN_KEY = "remote.pairingToken";
 
-  set(key: string, value: string): void {
-    this.databaseConnection
-      .prepare(
-        `INSERT INTO user_preferences (preference_key, preference_value) VALUES (?, ?)
-         ON CONFLICT(preference_key) DO UPDATE SET preference_value = excluded.preference_value`,
-      )
-      .run(key, value);
-  }
+// Startup step, after the database is open: moves the settings and secrets of
+// earlier versions to where they live now.
+export function initializePreferences(): void {
+  const imported = importDatabasePreferences(
+    getDatabase(),
+    getPreferences(),
+    new Set([LEGACY_REMOTE_TOKEN_KEY]),
+  );
+  migrateLegacySecrets(imported[LEGACY_REMOTE_TOKEN_KEY] ?? null);
 }
 
 // The play queue as it was when the app closed, so playback can pick up where
@@ -62,7 +59,7 @@ export class QueueRepository {
 }
 
 export function registerPreferencesHandlers(): void {
-  const preferences = new PreferencesRepository(getDatabase());
+  const preferences = getPreferences();
   const queue = new QueueRepository(getDatabase());
 
   handleTrusted("preferences:get-all", () => preferences.getAll());

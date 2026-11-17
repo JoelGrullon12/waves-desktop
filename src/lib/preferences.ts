@@ -1,5 +1,5 @@
-// Names and parsing of the settings kept in the local database
-// (`user_preferences`). Values travel as text; these helpers give them a type
+// Names and parsing of the settings kept in `settings.ini` in the data folder
+// (see electron/main/preferencesFile.ts). Values travel as text; these helpers give them a type
 // and a safe fallback when a stored value is missing or no longer valid.
 
 export const PREFERENCE_KEYS = {

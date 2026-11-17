@@ -1,11 +1,15 @@
 import type { Client, InStatement } from "@libsql/client";
+import type { SyncConfigInfo, SyncConfigResult } from "../../src/types/player";
+import { readAppSecrets, updateAppSecrets } from "./appSecrets";
 import { handleTrusted } from "./secureIpc";
 import { getPlayCountRepository, type PlayCountRepository } from "./playCountRepository";
 import { isWorthSyncing, planSync, type PlayRow } from "./playSync";
+import { parseTursoConfig, resolveTursoConfig, type TursoConfig } from "./validation";
 
 // Cloud copy of the play counts (Turso / libSQL), so they follow the user
-// across devices. Everything keeps working without it: with no TURSO_* values
-// in the environment, or with no network, plays are only stored locally and
+// across devices. It is set up in Settings (or with TURSO_* in .env during
+// development). Everything keeps working without it: with no database set, or
+// with no network, plays are only stored locally and
 // are sent at the next successful sync.
 //
 // Strategy (single user, no conflict resolution): at startup both sides are
@@ -20,7 +24,7 @@ const REMOTE_TABLE = /^[a-z_]{1,40}$/.test(process.env["WAVES_SYNC_TABLE"] ?? ""
 const REMOTE_WRITE_BATCH = 200;
 
 export interface SyncStatus {
-  // False when the TURSO_* environment values are missing.
+  // False until a database is set up.
   isConfigured: boolean;
   state: "disabled" | "idle" | "syncing" | "error";
   lastSyncedAt: string | null;
@@ -30,7 +34,7 @@ export interface SyncStatus {
 }
 
 // The two calls the sync needs from the libSQL client.
-export type RemoteDatabase = Pick<Client, "execute" | "batch">;
+export type RemoteDatabase = Pick<Client, "execute" | "batch"> & Partial<Pick<Client, "close">>;
 
 function upsertStatement(row: PlayRow): InStatement {
   return {
@@ -66,6 +70,11 @@ export class TursoSync {
       lastError: null,
       pendingTracks: 0,
     };
+  }
+
+  // Called when the settings change and a new service replaces this one.
+  close(): void {
+    this.remote?.close?.();
   }
 
   getStatus(): SyncStatus {
@@ -168,28 +177,75 @@ export class TursoSync {
 
 let tursoSync: TursoSync | null = null;
 
-// Uses the HTTP client (`@libsql/client/web`): it needs no native module, so
-// it works inside Electron on every platform without a rebuild.
-async function createRemoteDatabase(): Promise<RemoteDatabase | null> {
-  const url = (process.env["TURSO_DATABASE_URL"] ?? "").trim();
-  const authToken = (process.env["TURSO_AUTH_TOKEN"] ?? "").trim();
-  if (!url || !authToken) return null;
-  const { createClient } = await import("@libsql/client/web");
-  return createClient({ url, authToken });
+function resolvedConfig() {
+  return resolveTursoConfig(process.env, readAppSecrets());
 }
 
-// Called once at startup, after the local database is open. The first full
-// sync runs in the background so the window never waits for the network.
-export async function startTursoSync(): Promise<void> {
+// Uses the HTTP client (`@libsql/client/web`): it needs no native module, so
+// it works inside Electron on every platform without a rebuild.
+async function createRemoteDatabase(config: TursoConfig): Promise<RemoteDatabase> {
+  const { createClient } = await import("@libsql/client/web");
+  return createClient({ url: config.databaseUrl, authToken: config.authToken });
+}
+
+// (Re)creates the sync service from the current settings. The first full sync
+// runs in the background so the window never waits for the network.
+async function configureTursoSync(): Promise<void> {
+  const config = resolvedConfig()?.config ?? null;
   let remote: RemoteDatabase | null = null;
-  try {
-    remote = await createRemoteDatabase();
-  } catch (error) {
-    console.error(`turso-sync: could not create the client: ${error instanceof Error ? error.message : error}`);
+  if (config) {
+    try {
+      remote = await createRemoteDatabase(config);
+    } catch (error) {
+      console.error(`turso-sync: could not create the client: ${error instanceof Error ? error.message : error}`);
+    }
   }
+  tursoSync?.close();
   tursoSync = new TursoSync(remote, getPlayCountRepository());
   if (remote) void tursoSync.syncEverything();
-  else console.info("turso-sync: disabled (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN not set)");
+  else console.info("turso-sync: disabled (no database set up)");
+}
+
+// Called once at startup, after the local database is open.
+export function startTursoSync(): Promise<void> {
+  return configureTursoSync();
+}
+
+// Checks that the database answers before the settings are kept, so a typo
+// shows up at once instead of as a failed sync later.
+async function saveTursoConfig(databaseUrl: unknown, authToken: unknown): Promise<SyncConfigResult> {
+  if (resolvedConfig()?.source === "env") {
+    return { success: false, error: "TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the .env file are in use." };
+  }
+  let config: TursoConfig;
+  try {
+    config = parseTursoConfig(databaseUrl, authToken);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  let probe: RemoteDatabase | null = null;
+  try {
+    probe = await createRemoteDatabase(config);
+    await probe.execute("SELECT 1");
+  } catch (error) {
+    return { success: false, error: `Could not reach the database: ${error instanceof Error ? error.message : error}` };
+  } finally {
+    probe?.close?.();
+  }
+  updateAppSecrets({ tursoDatabaseUrl: config.databaseUrl, tursoAuthToken: config.authToken });
+  await configureTursoSync();
+  return { success: true, status: tursoSync?.getStatus() ?? DISABLED_STATUS };
+}
+
+async function clearTursoConfig(): Promise<SyncConfigResult> {
+  updateAppSecrets({ tursoDatabaseUrl: null, tursoAuthToken: null });
+  await configureTursoSync();
+  return { success: true, status: tursoSync?.getStatus() ?? DISABLED_STATUS };
+}
+
+function syncConfigInfo(): SyncConfigInfo {
+  const resolved = resolvedConfig();
+  return { source: resolved?.source ?? null, databaseUrl: resolved?.config.databaseUrl ?? null };
 }
 
 export function pushPlayedTrack(trackId: string): void {
@@ -207,4 +263,7 @@ const DISABLED_STATUS: SyncStatus = {
 export function registerSyncHandlers(): void {
   handleTrusted("sync:get-status", () => tursoSync?.getStatus() ?? DISABLED_STATUS);
   handleTrusted("sync:run-now", () => tursoSync?.syncEverything() ?? DISABLED_STATUS);
+  handleTrusted("sync:get-config", () => syncConfigInfo());
+  handleTrusted("sync:save-config", (_event, databaseUrl, authToken) => saveTursoConfig(databaseUrl, authToken));
+  handleTrusted("sync:clear-config", () => clearTursoConfig());
 }

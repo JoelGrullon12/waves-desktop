@@ -1,8 +1,10 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
-import type { ReactNode } from "react";
+import { AppDataSection } from "@/components/settings/AppDataSection";
+import { CloudSyncSection } from "@/components/settings/CloudSyncSection";
 import { LibraryCacheSection } from "@/components/settings/LibraryCacheSection";
 import { RemoteControlSection } from "@/components/settings/RemoteControlSection";
+import { SettingsSection } from "@/components/settings/SettingsSection";
+import { TidalAppSection } from "@/components/settings/TidalAppSection";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/hooks/useLogout";
 import {
@@ -22,7 +24,6 @@ import { isThemeChoice, THEME_CHOICES, type ThemeChoice } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/store/preferencesStore";
 import { useSessionStore } from "@/store/sessionStore";
-import type { SyncStatus } from "@/types/player";
 
 const THEME_LABELS: Record<ThemeChoice, string> = {
   system: "Same as system",
@@ -35,24 +36,6 @@ const SHUFFLE_LABELS: Record<(typeof SHUFFLE_KINDS)[number], string> = {
   smart: "Smart (least played first)",
   random: "Random",
 };
-
-export function SettingsSection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border p-5">
-      <h2 className="text-base font-semibold">{title}</h2>
-      {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
 
 // A row of mutually exclusive choices (theme, shuffle kind...).
 export function ChoiceGroup<Choice extends string>({
@@ -122,64 +105,6 @@ function NumberSetting({
         className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
       />
     </label>
-  );
-}
-
-const SYNC_STATE_LABELS: Record<SyncStatus["state"], string> = {
-  disabled: "Not set up",
-  idle: "Up to date",
-  syncing: "Syncing…",
-  error: "Last attempt failed",
-};
-
-// Cloud copy of the play counts. It is set up outside the app (TURSO_* values
-// in the .env file), so this only reports its state and lets the user retry.
-function CloudSyncSection() {
-  const queryClient = useQueryClient();
-  const statusQuery = useQuery({
-    queryKey: ["sync-status"],
-    queryFn: () => window.api.getSyncStatus(),
-    refetchInterval: 10_000,
-  });
-  const status = statusQuery.data;
-  const syncNow = async () => {
-    queryClient.setQueryData<SyncStatus>(["sync-status"], (current) =>
-      current ? { ...current, state: "syncing" } : current,
-    );
-    queryClient.setQueryData(["sync-status"], await window.api.runSyncNow());
-  };
-
-  return (
-    <SettingsSection
-      title="Play count sync"
-      description={
-        status?.isConfigured
-          ? "Play counts are copied to your Turso database so they follow you across devices."
-          : "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the .env file to copy play counts to the cloud. Without them they stay on this device."
-      }
-    >
-      {status && (
-        <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="sync-status">
-          <span className={status.state === "error" ? "text-destructive" : "text-foreground"}>
-            {SYNC_STATE_LABELS[status.state]}
-          </span>
-          {status.lastSyncedAt && (
-            <span className="text-muted-foreground">
-              Last sync {new Date(status.lastSyncedAt).toLocaleString()}
-            </span>
-          )}
-          {status.pendingTracks > 0 && (
-            <span className="text-muted-foreground">{status.pendingTracks} waiting to be sent</span>
-          )}
-          {status.isConfigured && (
-            <Button variant="outline" size="sm" onClick={() => void syncNow()} disabled={status.state === "syncing"}>
-              Sync now
-            </Button>
-          )}
-        </div>
-      )}
-      {status?.lastError && <p className="mt-2 text-sm text-destructive">{status.lastError}</p>}
-    </SettingsSection>
   );
 }
 
@@ -306,6 +231,10 @@ export function SettingsView() {
             </Button>
           )}
         </SettingsSection>
+
+        <TidalAppSection />
+
+        <AppDataSection />
 
         <SettingsSection title="Account" description="Sign out of your TIDAL account on this device.">
           <Button variant="outline" onClick={() => void handleLogout()}>

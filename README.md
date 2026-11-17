@@ -53,7 +53,7 @@ Two sign-ins exist: the **Dashboard app** (your own client id, used for the cata
   Windows).
 - A paid (subscribed) TIDAL account for full-length playback.
 - For the Dashboard login: `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` from an app created in the
-  [TIDAL Dashboard](https://developer.tidal.com/dashboard) (`.env` file — see below).
+  [TIDAL Dashboard](https://developer.tidal.com/dashboard) (asked on first launch; `.env` in development).
 
 ## Getting started
 
@@ -69,16 +69,18 @@ so no manual download step is needed.
 
 ### Environment variables (`.env`)
 
-Create `.env` from `.env.example` and fill in the values (never commit `.env`):
+Development only: a packaged build is configured from *Settings* and keeps everything in its data
+folder (`settings.ini`, the database and an encrypted secrets file; *Settings → App data* shows
+and moves it). Values set in `.env` win over the saved ones. Never commit `.env`:
 
 | Variable | Required | Purpose |
 |---|---|---|
 | `TIDAL_CLIENT_ID` | No (dev override) | TIDAL Dashboard app; a packaged build asks for it on first launch |
 | `TIDAL_CLIENT_SECRET` | No (dev override) | TIDAL Dashboard app secret |
-| `TURSO_DATABASE_URL` | No | Turso cloud DB for cross-device play-count sync |
+| `TURSO_DATABASE_URL` | No (dev override) | Turso cloud DB for cross-device play-count sync |
 | `TURSO_AUTH_TOKEN` | No | Turso auth token |
 | `REMOTE_CONTROL_WEBSOCKET_PORT` | No | Mobile remote-control WebSocket port (default `47836`) |
-| `LOCAL_SQLITE_PATH` | No | Override SQLite path (defaults to Electron's user-data dir) |
+| `LOCAL_SQLITE_PATH` | No | Override SQLite path (defaults to the data folder) |
 
 > Register the redirect URI `http://127.0.0.1:8899/tidal-callback` in the Dashboard.
 > TIDAL scopes to enable in the Dashboard: `user.read`, `collection.read`, `collection.write`,
@@ -93,7 +95,7 @@ Create `.env` from `.env.example` and fill in the values (never commit `.env`):
 3. **Widevine**: the DRM module is downloaded on the first launch and is ready from the second
    one (see `AGENTS.md`, "How Widevine is delivered").
 4. Optional, all in *Settings*: phone remote, local library copy, play threshold, shuffle mode,
-   Favorites size. Turso sync is configured in `.env`.
+   Favorites size, Turso sync, remote port, TIDAL credentials and the data folder.
 
 ## Packaging & distribution
 

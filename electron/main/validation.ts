@@ -156,6 +156,60 @@ export function resolveTidalAppCredentials(
   return stored ? { credentials: stored, source: "stored" } : null;
 }
 
+export interface TursoConfig {
+  databaseUrl: string;
+  authToken: string;
+}
+
+const MAX_TURSO_URL_LENGTH = 512;
+const TURSO_TOKEN_PATTERN = /^[A-Za-z0-9_.+/=-]{16,4096}$/;
+
+// A Turso database URL (`libsql://name-org.turso.io`) or a plain HTTPS one;
+// the HTTP client of @libsql/client accepts both.
+export function parseTursoConfig(databaseUrl: unknown, authToken: unknown): TursoConfig {
+  if (typeof databaseUrl !== "string" || typeof authToken !== "string") {
+    throw invalidArgument("Turso settings");
+  }
+  const url = databaseUrl.trim();
+  const token = authToken.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw invalidArgument("database URL");
+  }
+  const isSupportedProtocol = parsed.protocol === "libsql:" || parsed.protocol === "https:";
+  if (!isSupportedProtocol || !parsed.hostname || url.length > MAX_TURSO_URL_LENGTH || parsed.username || parsed.password) {
+    throw invalidArgument("database URL");
+  }
+  if (!TURSO_TOKEN_PATTERN.test(token)) throw invalidArgument("auth token");
+  return { databaseUrl: url, authToken: token };
+}
+
+// Same rule as the TIDAL credentials: both TURSO_* values in .env win over
+// what was saved in Settings.
+export function resolveTursoConfig(
+  environment: { TURSO_DATABASE_URL?: string; TURSO_AUTH_TOKEN?: string },
+  stored: { tursoDatabaseUrl?: string; tursoAuthToken?: string },
+): { config: TursoConfig; source: "env" | "stored" } | null {
+  const environmentUrl = environment.TURSO_DATABASE_URL?.trim();
+  const environmentToken = environment.TURSO_AUTH_TOKEN?.trim();
+  if (environmentUrl && environmentToken) {
+    return { config: { databaseUrl: environmentUrl, authToken: environmentToken }, source: "env" };
+  }
+  if (stored.tursoDatabaseUrl && stored.tursoAuthToken) {
+    return { config: { databaseUrl: stored.tursoDatabaseUrl, authToken: stored.tursoAuthToken }, source: "stored" };
+  }
+  return null;
+}
+
+export function requireNetworkPort(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1024 || value > 65535) {
+    throw invalidArgument("port (use a number from 1024 to 65535)");
+  }
+  return value;
+}
+
 export interface TrustedRenderer {
   // Origin of the electron-vite dev server; null in a packaged build.
   developmentOrigin: string | null;

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./database", () => ({ getDatabase: () => null }));
 vi.mock("./secureIpc", () => ({ handleTrusted: () => undefined }));
+vi.mock("./appSecrets", () => ({ readAppSecrets: () => ({}), updateAppSecrets: () => undefined }));
 
 import { DATABASE_SCHEMA, migrateDatabase } from "./databaseSchema";
 import { PlayCountRepository } from "./playCountRepository";

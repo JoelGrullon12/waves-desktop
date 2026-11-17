@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import qrcode from "qrcode-generator";
-import { useMemo } from "react";
+import { useMemo, useState, type FormEvent } from "react";
+import { SETTINGS_INPUT_CLASS } from "@/components/settings/SettingsField";
 import { Button } from "@/components/ui/button";
 import type { RemoteControlInfo } from "@/types/player";
 
@@ -48,6 +49,51 @@ function QrCode({ text }: { text: string }) {
   );
 }
 
+const MINIMUM_PORT = 1024;
+const MAXIMUM_PORT = 65535;
+
+// The port can be changed unless REMOTE_CONTROL_WEBSOCKET_PORT in .env sets it.
+function PortSetting({ info, onSave }: { info: RemoteControlInfo; onSave: (port: number) => Promise<void> }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? String(info.port);
+  const port = Number(value);
+  const isValid = Number.isInteger(port) && port >= MINIMUM_PORT && port <= MAXIMUM_PORT;
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!isValid || port === info.port) return;
+    await onSave(port);
+    setDraft(null);
+  };
+
+  return (
+    <form onSubmit={(event) => void save(event)} className="flex flex-wrap items-center gap-2 text-sm">
+      <label className="flex items-center gap-2">
+        Port
+        <input
+          type="number"
+          min={MINIMUM_PORT}
+          max={MAXIMUM_PORT}
+          value={value}
+          disabled={info.isPortFromEnvironment}
+          aria-label="Remote port"
+          onChange={(event) => setDraft(event.target.value)}
+          className={`${SETTINGS_INPUT_CLASS} w-24`}
+        />
+      </label>
+      {draft !== null && port !== info.port && (
+        <Button type="submit" size="sm" variant="outline" disabled={!isValid}>
+          Save port
+        </Button>
+      )}
+      {info.isPortFromEnvironment && (
+        <span className="text-muted-foreground">Set by REMOTE_CONTROL_WEBSOCKET_PORT in the .env file.</span>
+      )}
+      {!isValid && <span className="text-destructive">Use a number from 1024 to 65535.</span>}
+    </form>
+  );
+}
+
 // Turns the phone remote on and off and shows the QR code that pairs a phone.
 export function RemoteControlSection() {
   const queryClient = useQueryClient();
@@ -85,6 +131,12 @@ export function RemoteControlSection() {
               </span>
             )}
           </div>
+          <PortSetting
+            info={info}
+            onSave={async (port) => {
+              await apply(window.api.setRemoteControlPort(port));
+            }}
+          />
           {info.error && (
             <p role="alert" className="text-sm text-destructive">
               Could not start the remote: {info.error}

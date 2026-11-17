@@ -139,7 +139,8 @@ data dir (app name `waves-desktop`).
 A `contextBridge` preload script exposes a typed `window.api` object to the renderer.
 The exact contract is typed once in `src/types/global.d.ts` — that file is the source of
 truth (do not duplicate it into docs). Channel families:
-- `credentials:*` — TIDAL dashboard client id/secret asked on first launch
+- `credentials:*` — TIDAL dashboard client id/secret (asked on first launch, editable in Settings)
+- `app-data:*` — data folder (info, open, move through a native folder picker, back to default)
 - `auth:*` — Dashboard app session (login, logout, is-authenticated). No handler returns a token.
 - `web-auth:*` — first-party web session used by the playback engine (login, logout, is-connected)
 - `catalog:*` / `library:*` — TIDAL v2 reads (search, albums, playlists, mixes, artists, liked
@@ -148,8 +149,8 @@ truth (do not duplicate it into docs). Channel families:
 - `player:*` — playback engine commands, plus the `player:state` and `player:media-key` events
 - `preferences:*` / `queue:*` — settings and the saved play queue (SQLite)
 - `stats:*` — play counts, smart shuffle order, top played
-- `sync:*` — Turso sync status / run now
-- `remote:*` — phone remote (info, on/off, new pairing code, state publishing, `remote:command` event)
+- `sync:*` — Turso sync status / run now / get, save (checked first) and clear its settings
+- `remote:*` — phone remote (info, on/off, port, new pairing code, state publishing, `remote:command` event)
 - `cache:*` — local library copy (status, on/off, refresh, search, playlist memberships,
   `cache:status` event)
 - `debug:api-get` — only answered with `WAVES_DEBUG_API=1`
@@ -172,8 +173,8 @@ The source of truth is `electron/main/databaseSchema.ts` (`DATABASE_SCHEMA` + `m
 for changes to existing tables). Tables:
 - `track_plays` (`track_id`, `play_count`, `last_played_at`, `baseline_count`) — `baseline_count`
   is the level a track enters smart shuffle at; it is local and never synced.
-- `user_preferences` (key/value text; keys listed in `src/lib/preferences.ts`, plus
-  `cache.enabled` and the remote's settings owned by the main process).
+- `user_preferences` — no longer used: earlier versions kept the settings here; they are moved
+  once into `settings.ini` (see "Configuration and data folder") and the rows are deleted.
 - `queued_tracks` — the play queue as it was when the app closed.
 - `cached_tracks`, `cached_collections`, `cached_collection_items` — the optional local library copy.
 
@@ -189,10 +190,32 @@ against an in-memory database with the real schema.
 | `https://tidal.com/` | TIDAL's web player, loaded in a hidden window — audio playback with Widevine DRM |
 | Turso | Cloud SQLite for play count sync |
 
+## Configuration and data folder
+
+A packaged build has no `.env`, so everything the user configures is kept in the **data folder**
+(`electron/main/appDataLocation.ts`): by default Electron's `userData`
+(`~/.config/waves-desktop`, `%APPDATA%\waves-desktop`). Settings → App data shows it, opens it
+and moves it; the chosen folder is written in `waves-location.ini` in `userData`, and moving
+copies the files, removes the originals and restarts the app. Chromium's data (TIDAL web
+session, Widevine CDM) and the OAuth token bundle always stay in `userData`.
+
+In the data folder:
+- `settings.ini` — every renderer setting (keys in `src/lib/preferences.ts`) plus `cache.enabled`,
+  `remote.enabled`, `remote.port`. Hand-written INI reader/writer (`iniFile.ts`), sections from
+  the first segment of the dotted key; written atomically (`preferencesFile.ts`).
+- `app-secrets` — one safeStorage-encrypted JSON (`appSecrets.ts`): TIDAL client id/secret,
+  Turso URL/token, the remote's pairing token. No IPC handler returns these values.
+- `waves-desktop.db` — SQLite (unless `LOCAL_SQLITE_PATH` points elsewhere).
+
+Settings edits Turso (checked with `SELECT 1` before saving, sync restarts without a relaunch),
+the remote's port and the TIDAL credentials. A value set in `.env` wins over the saved one
+(`resolveTidalAppCredentials` / `resolveTursoConfig` in `validation.ts`) and Settings then shows
+it as read-only.
+
 ## Environment Variables
 
-Never commit these. Single `.env` file at the project root.
-The Electron main process loads it with `dotenv` at startup.
+Never commit these. Single `.env` file at the project root, **development only** (a packaged
+build is configured from Settings). The Electron main process loads it with `dotenv` at startup.
 
 ```env
 # Development override: a packaged build asks for these on first launch
@@ -211,13 +234,14 @@ LOCAL_SQLITE_PATH=
 ```
 
 `TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET` are a **development override**: a packaged build asks
-for them on first launch and stores them encrypted (`safeStorage`, file mode 0600) in
-`userData/tidal-app-credentials`. When both are set in `.env` they win over the stored ones.
+for them on first launch and stores them in `app-secrets`. When both are set in `.env` they win
+over the stored ones (same rule for `TURSO_*` and `REMOTE_CONTROL_WEBSOCKET_PORT`).
 The redirect URI is hardcoded in `electron/main/auth.ts`.
 
 Debug-only variables: `WAVES_SHOW_ENGINE=1` (show the engine window), `WAVES_DEBUG_API=1`
 (enable `debug:api-get`), `WAVES_SYNC_TABLE` (Turso table name, to test sync against a
-throwaway table).
+throwaway table), `WAVES_USER_DATA_DIRECTORY` (absolute path used as `userData`, to run checks
+against a copy of the profile instead of the real one).
 
 ## TIDAL OAuth Redirect URI
 
@@ -306,6 +330,10 @@ waves-desktop/
 │   │   ├── webSessionAuth.ts       # First-party web session for FULL playback (sign-in window)
 │   │   ├── tidalWebPlayer.ts       # Playback engine: hidden window with TIDAL's web player
 │   │   ├── tidalWebPlayerScript.ts # Everything specific to TIDAL's page (Redux actions, snapshot)
+│   │   ├── appDataLocation.ts      # Data folder: where it is, moving it + IPC
+│   │   ├── appSecrets.ts           # Encrypted secrets file (TIDAL app, Turso, remote token)
+│   │   ├── iniFile.ts              # Pure INI reader/writer
+│   │   ├── preferencesFile.ts      # settings.ini store + one-time import from SQLite
 │   │   ├── secureIpc.ts            # handleTrusted: sender check for every IPC handler
 │   │   ├── validation.ts           # Pure argument validation, sender trust, credential parsing
 │   │   ├── privateFile.ts          # Writes files with mode 0600
@@ -317,7 +345,7 @@ waves-desktop/
 │   │   ├── tidalParsers.ts         # Pure JSON:API → Track parsing
 │   │   ├── database.ts             # SQLite connection (node:sqlite)
 │   │   ├── databaseSchema.ts       # Schema + migrations (usable with an in-memory database)
-│   │   ├── preferencesRepository.ts # Preferences and saved queue + IPC
+│   │   ├── preferencesRepository.ts # Settings singleton, saved queue + IPC
 │   │   ├── playCountRepository.ts  # Play counts, baselines, top played + IPC
 │   │   ├── smartShuffle.ts         # Pure smart shuffle ordering
 │   │   ├── playSync.ts             # Pure merge rules of the cloud sync
@@ -554,7 +582,8 @@ after its extra play). Volume, shuffle, repeat and the queue are restored on sta
 ### Turso sync (play counts only)
 `tursoSync.ts` + pure rules in `playSync.ts`: full sync at start in the background and a push of
 every counted play; per track the higher count and the later date win; failed pushes stay pending
-and go out with the next sync. Without `TURSO_*` it is off and everything stays local.
+and go out with the next sync. Without a database set (Settings, or `TURSO_*` in `.env`) it is off
+and everything stays local.
 
 ### Phone remote
 `remoteControl.ts` serves one self-contained page and a WebSocket on the local network, off until

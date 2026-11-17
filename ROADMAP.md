@@ -143,6 +143,14 @@ Nota del desarrollador: se elimino la parte de playlist global ya que seria dema
   para el streaming de metadata completa al reproducir.
 - No conectado a nada aún — solo diseño.
 
+## Phase 9 — Pulido desde `details.md` 🔄 (2026-11-16)
+
+Plan y decisiones en `specs/actual.md`. Seis bloques: configuración sin `.env` (`settings.ini`,
+secretos cifrados, carpeta de datos movible), Windows (log en archivo, arreglos a ciegas),
+barra lateral y detalles visuales, listas/cola/barra inferior, panel "Now playing" con letras
+sincronizadas y créditos (API v2: `tracks/{id}/relationships/lyrics|credits`), y edición de
+playlists (nombre, descripción, portada) con créditos del álbum.
+
 ## Backlog / ideas sin fase
 
 - **Plan B de reproducción:** `web-auth:get-playback-stream` ya consulta

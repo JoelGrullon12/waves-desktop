@@ -1,13 +1,16 @@
 import { app, BrowserWindow, components } from "electron";
 import path from "node:path";
+import { registerAppDataHandlers } from "./appDataLocation";
+import { SECRETS_FILE } from "./appSecrets";
 import { registerAuthHandlers } from "./auth";
 import { registerCatalogHandlers } from "./catalog";
-import { initializeDatabase } from "./database";
+import { closeDatabase, DATABASE_FILES, initializeDatabase, isDatabaseInDataDirectory } from "./database";
 import { registerLibraryHandlers } from "./libraryCatalog";
 import { CACHE_STATUS_CHANNEL, getMetadataCache, registerMetadataCacheHandlers } from "./metadataCache";
 import { registerApiExplorer } from "./tidalApiClient";
 import { registerStatsHandlers, setPlayCountedListener } from "./playCountRepository";
-import { registerPreferencesHandlers } from "./preferencesRepository";
+import { SETTINGS_FILE } from "./preferencesFile";
+import { initializePreferences, registerPreferencesHandlers } from "./preferencesRepository";
 import {
   getRemoteControl,
   registerRemoteControlHandlers,
@@ -24,6 +27,13 @@ import {
 import { registerWebSessionHandlers, setWebSessionListener } from "./webSessionAuth";
 import { pushPlayedTrack, registerSyncHandlers, startTursoSync } from "./tursoSync";
 import { installWidevineFromCache, type WidevineInstallResult } from "./widevineInstaller";
+
+// Debug only: run against a copy of the profile (TIDAL session, Widevine, data)
+// so automated checks never touch the real one. Must run before `ready`.
+const debugUserDataDirectory = process.env["WAVES_USER_DATA_DIRECTORY"];
+if (debugUserDataDirectory && path.isAbsolute(debugUserDataDirectory)) {
+  app.setPath("userData", debugUserDataDirectory);
+}
 
 // Electron is launched with `--no-sandbox` (see package.json scripts and
 // electron-builder.yml). On Linux, the npm-installed Electron fork has no SUID
@@ -51,6 +61,7 @@ function sendToRenderer(targetWindow: BrowserWindow, channel: string, payload: u
 async function createWindow(): Promise<void> {
 
   const mainWindow = new BrowserWindow({
+    title: "Waves",
     width: 1280,
     height: 800,
     webPreferences: {
@@ -134,7 +145,12 @@ app.whenReady().then(async () => {
   registerPlayerHandlers();
   registerApiExplorer();
   initializeDatabase();
+  initializePreferences();
   registerPreferencesHandlers();
+  registerAppDataHandlers({
+    movableFiles: () => [SETTINGS_FILE, SECRETS_FILE, ...(isDatabaseInDataDirectory() ? DATABASE_FILES : [])],
+    releaseFiles: closeDatabase,
+  });
   registerStatsHandlers();
   registerSyncHandlers();
   setPlayCountedListener(pushPlayedTrack);

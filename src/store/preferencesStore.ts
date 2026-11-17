@@ -2,8 +2,8 @@ import { create } from "zustand";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import type { PreferenceValues } from "@/lib/preferences";
 
-// Settings kept in the local database, loaded once at startup. Writes update
-// the store at once and reach the database a moment later, so a slider that
+// Settings kept in settings.ini, loaded once at startup. Writes update the
+// store at once and reach the file a moment later, so a slider that
 // fires dozens of changes costs a single write.
 const WRITE_DELAY_MS = 300;
 

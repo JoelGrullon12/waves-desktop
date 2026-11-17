@@ -51,7 +51,7 @@ export interface PlayedTrack {
 
 // State of the cloud copy of the play counts.
 export interface SyncStatus {
-  // False when the TURSO_* environment values are missing.
+  // False until a Turso database is set in Settings (or TURSO_* in .env).
   isConfigured: boolean;
   state: "disabled" | "idle" | "syncing" | "error";
   lastSyncedAt: string | null;
@@ -59,6 +59,25 @@ export interface SyncStatus {
   // Plays counted locally that have not reached the cloud yet.
   pendingTracks: number;
 }
+
+// Where the Turso settings come from. The token never leaves the main process.
+export interface SyncConfigInfo {
+  source: "env" | "stored" | null;
+  databaseUrl: string | null;
+}
+
+export type SyncConfigResult = { success: true; status: SyncStatus } | { success: false; error: string };
+
+// Folder where Waves keeps settings.ini, the database and the secrets.
+export interface AppDataInfo {
+  directory: string;
+  defaultDirectory: string;
+  isDefault: boolean;
+}
+
+export type AppDataMoveResult =
+  | { success: true; usedExistingData: boolean }
+  | { success: false; error: string };
 
 // --- Phone remote (see electron/main/remoteControl.ts) ---
 
@@ -86,6 +105,8 @@ export interface RemoteControlInfo {
   isEnabled: boolean;
   isRunning: boolean;
   port: number;
+  // REMOTE_CONTROL_WEBSOCKET_PORT in .env decides the port; Settings can not.
+  isPortFromEnvironment: boolean;
   // Address a phone on the same network opens; null when no network is up.
   url: string | null;
   connectedClients: number;

@@ -13,7 +13,8 @@ import {
   MetadataCacheRepository,
   type CachedSearchResult,
 } from "./metadataCacheRepository";
-import { PreferencesRepository } from "./preferencesRepository";
+import type { PreferencesFile } from "./preferencesFile";
+import { getPreferences } from "./preferencesRepository";
 import { handleTrusted } from "./secureIpc";
 import { sleep } from "./tidalApiClient";
 import type { Track } from "./tidalParsers";
@@ -37,16 +38,15 @@ type StatusListener = (status: MetadataCacheStatus) => void;
 
 export class MetadataCache {
   private readonly repository: MetadataCacheRepository;
-  private readonly preferences: PreferencesRepository;
+  private readonly preferences: PreferencesFile;
   private readonly listeners = new Set<StatusListener>();
   private isRefreshing = false;
   private progress: string | null = null;
   private lastError: string | null = null;
 
   constructor() {
-    const databaseConnection = getDatabase();
-    this.repository = new MetadataCacheRepository(databaseConnection);
-    this.preferences = new PreferencesRepository(databaseConnection);
+    this.repository = new MetadataCacheRepository(getDatabase());
+    this.preferences = getPreferences();
   }
 
   onStatus(listener: StatusListener): () => void {
