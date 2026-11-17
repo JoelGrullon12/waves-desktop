@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatTotalDuration } from "@/lib/format";
+import { formatAudioFormat, formatDuration, formatTotalDuration } from "@/lib/format";
 
 describe("formatDuration", () => {
   it("formats seconds as m:ss", () => {
@@ -34,5 +34,22 @@ describe("formatTotalDuration", () => {
     expect(formatTotalDuration(undefined)).toBe("0 min");
     expect(formatTotalDuration(0)).toBe("0 min");
     expect(formatTotalDuration(Number.POSITIVE_INFINITY)).toBe("0 min");
+  });
+});
+
+describe("formatAudioFormat", () => {
+  it("describes quality, bit depth and sample rate", () => {
+    expect(formatAudioFormat({ audioQuality: "LOSSLESS", bitDepth: 16, sampleRate: 44100 })).toBe(
+      "Lossless · 16-bit / 44.1 kHz",
+    );
+    expect(
+      formatAudioFormat({ audioQuality: "HI_RES_LOSSLESS", bitDepth: 24, sampleRate: 96000 }),
+    ).toBe("Max · 24-bit / 96 kHz");
+  });
+
+  it("falls back to the quality alone, or nothing", () => {
+    expect(formatAudioFormat({ audioQuality: "HIGH", bitDepth: null, sampleRate: null })).toBe("High");
+    expect(formatAudioFormat({ audioQuality: null, bitDepth: 16, sampleRate: 44100 })).toBeNull();
+    expect(formatAudioFormat(null)).toBeNull();
   });
 });

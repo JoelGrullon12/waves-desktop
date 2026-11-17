@@ -1,4 +1,4 @@
-import type { ArtistSummary } from "@/types/track";
+import type { ArtistSummary } from "./track";
 
 export type MediaType = "playlist" | "album" | "mix";
 
@@ -23,6 +23,8 @@ export interface PlaylistSummary {
   numberOfItems: number;
   duration: number;
   playlistType?: string | null;
+  // ISO date of the last change to the playlist, when TIDAL reports it.
+  lastModifiedAt?: string | null;
 }
 
 export interface AlbumSummary {
@@ -57,8 +59,42 @@ export interface PlaylistDetail {
   title: string;
   cover?: string | null;
   playlistType?: string | null;
+  // What the owner wrote about the playlist; null when empty.
+  description?: string | null;
   numberOfItems: number;
   duration: number;
 }
 
 export type MixRelationName = "myMixes" | "discoveryMixes";
+
+// An artist as shown on cards and at the top of the artist page.
+export interface ArtistCard {
+  id: string;
+  name: string;
+  picture?: string | null;
+}
+
+export interface AlbumPage {
+  albums: AlbumSummary[];
+  nextCursor: string | null;
+}
+
+export interface ArtistPage {
+  artists: ArtistCard[];
+  nextCursor: string | null;
+}
+
+// Search results other than tracks.
+export interface SearchResults {
+  albums: AlbumSummary[];
+  artists: ArtistCard[];
+  playlists: PlaylistSummary[];
+}
+
+// A cover TIDAL suggests for a playlist.
+export interface PlaylistCoverChoice {
+  artworkId: string;
+  imageUrl: string;
+}
+
+export type PlaylistEditResult = { success: true } | { success: false; error: string };

@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { HorizontalScroll } from "@/components/media/HorizontalScroll";
 import { MediaCard } from "@/components/media/MediaCard";
+import { TrackList } from "@/components/tracks/TrackList";
+import { playCountLabels, useTopPlayedTracks } from "@/hooks/useTopPlayedTracks";
 import { errorMessage, logToTerminal } from "@/lib/logger";
+import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
 import { playMedia } from "@/lib/mediaPlayback";
 import { randomSubset } from "@/lib/random";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
@@ -16,15 +19,6 @@ const HOME_QUERY_OPTIONS = {
   staleTime: 5 * 60 * 1000,
   gcTime: 30 * 60 * 1000,
 } as const;
-
-function playlistSubtitle(playlist: PlaylistSummary): string {
-  const playlistType = (playlist.playlistType ?? "").toUpperCase();
-  if (playlistType.includes("EDITORIAL") || playlistType.includes("TIDAL")) return "TIDAL";
-  if (playlist.numberOfItems > 0) {
-    return `${playlist.numberOfItems} ${playlist.numberOfItems === 1 ? "track" : "tracks"}`;
-  }
-  return "Playlist";
-}
 
 function playlistHasType(playlist: PlaylistSummary, types: string[]): boolean {
   const playlistType = (playlist.playlistType ?? "").toUpperCase();
@@ -38,30 +32,6 @@ function dedupeMedia(cards: MediaSummary[]): MediaSummary[] {
     seen.add(card.id);
     return true;
   });
-}
-
-function playlistToMedia(playlist: PlaylistSummary): MediaSummary {
-  return {
-    id: playlist.id,
-    type: "playlist",
-    title: playlist.title,
-    subtitle: playlistSubtitle(playlist),
-    cover: playlist.cover,
-    numberOfItems: playlist.numberOfItems,
-  };
-}
-
-function albumToMedia(album: AlbumSummary): MediaSummary {
-  const artistNames = album.artists.map((artist) => artist.name).join(", ");
-  return {
-    id: album.id,
-    type: "album",
-    title: album.title,
-    subtitle: artistNames || "Album",
-    cover: album.cover,
-    numberOfItems: album.numberOfItems,
-    releaseDate: album.releaseDate ?? undefined,
-  };
 }
 
 function mixToMedia(mix: MixSummary): MediaSummary {
@@ -113,6 +83,37 @@ function HomeSection({
         <p className="py-4 text-sm text-muted-foreground">{emptyText ?? "Nothing here yet."}</p>
       )}
       {showContent && children}
+    </section>
+  );
+}
+
+const MOST_LISTENED_LIMIT = 10;
+const MOST_LISTENED_SOURCE = {
+  sourceType: "stats",
+  sourceId: "most-listened",
+  sourceTitle: "Most listened",
+  sourcePath: "/",
+};
+
+// The tracks played most in this app, from the local statistics. Hidden until
+// something has been played long enough to count.
+function MostListened() {
+  const topPlayed = useTopPlayedTracks(MOST_LISTENED_LIMIT, null);
+  const details = useMemo(
+    () => playCountLabels(topPlayed.data?.playCountById ?? new Map()),
+    [topPlayed.data],
+  );
+  const tracks = topPlayed.data?.tracks ?? [];
+  if (tracks.length === 0) return null;
+  return (
+    <section className="mb-8" data-testid="most-listened">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h2 className="text-lg font-bold">Most listened</h2>
+        <Link to="/favorites" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
+          Recent favorites
+        </Link>
+      </div>
+      <TrackList tracks={tracks} source={MOST_LISTENED_SOURCE} detailByTrackId={details} />
     </section>
   );
 }
@@ -271,6 +272,8 @@ export function HomeView() {
           ))}
         </HorizontalScroll>
       </HomeSection>
+
+      <MostListened />
 
       <HomeSection
         title="New Releases"

@@ -2,13 +2,18 @@ import { CircleAlert } from "lucide-react";
 import { useEffect } from "react";
 import { Outlet } from "react-router";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { NowPlayingPanel } from "@/components/player/NowPlayingPanel";
 import { PlayerBar } from "@/components/player/PlayerBar";
 import { QueuePanel } from "@/components/player/QueuePanel";
+import { AddToPlaylistsDialog } from "@/components/tracks/AddToPlaylistsDialog";
 import { useMediaSession } from "@/hooks/useMediaSession";
+import { useRemoteControlBridge } from "@/hooks/useRemoteControlBridge";
+import { useCacheStore } from "@/store/cacheStore";
 import { usePlayerStore } from "@/store/playerStore";
 
 export function AppShell() {
   useMediaSession();
+  useRemoteControlBridge();
   const error = usePlayerStore((state) => state.error);
   const notice = usePlayerStore((state) => state.notice);
   const initPlayer = usePlayerStore((state) => state.init);
@@ -16,6 +21,8 @@ export function AppShell() {
   useEffect(() => {
     initPlayer();
   }, [initPlayer]);
+  const connectCache = useCacheStore((state) => state.connect);
+  useEffect(() => connectCache(), [connectCache]);
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -24,6 +31,7 @@ export function AppShell() {
         <main className="min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
+        <NowPlayingPanel />
         <QueuePanel />
       </div>
 
@@ -47,6 +55,7 @@ export function AppShell() {
       )}
 
       <PlayerBar />
+      <AddToPlaylistsDialog />
     </div>
   );
 }

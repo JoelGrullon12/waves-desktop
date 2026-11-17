@@ -6,7 +6,7 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   {
     // shadcn/ui primitives are generated code; build output is never linted.
-    ignores: ["out/**", "dist/**", "node_modules/**", "src/components/ui/**"],
+    ignores: ["out/**", "dist/**", "node_modules/**", ".tmp/**", "src/components/ui/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

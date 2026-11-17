@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writePrivateFile } from "./privateFile";
 import { handleTrusted } from "./secureIpc";
-import { authorizationCodeFromRedirect, requireResourceId } from "./validation";
+import { authorizationCodeFromRedirect } from "./validation";
 
 // First-party web session for full-length playback.
 //
@@ -52,6 +52,15 @@ interface WebTokenBundle {
 interface WebLoginResult {
   success: boolean;
   error?: string;
+}
+
+// The playback engine (tidalWebPlayer.ts) lives on the same partition: it is
+// told when the session appears or is about to be wiped.
+type WebSessionListener = (isConnected: boolean) => void;
+let webSessionListener: WebSessionListener | null = null;
+
+export function setWebSessionListener(listener: WebSessionListener): void {
+  webSessionListener = listener;
 }
 
 function webSessionFilePath(): string {
@@ -212,21 +221,9 @@ export function isWebSessionConnected(): boolean {
   return loadWebSession() !== null;
 }
 
-export async function getWebSessionCredentials(): Promise<{
-  client_id: string;
-  access_token: string;
-  user_id: string | null;
-} | null> {
-  const accessToken = await getValidWebAccessToken();
-  if (!accessToken) return null;
-  return {
-    client_id: WEB_CLIENT_ID,
-    access_token: accessToken,
-    user_id: loadWebSession()?.userId ?? null,
-  };
-}
-
 export async function logoutWebSession(): Promise<void> {
+  // The engine window must be gone before its storage is cleared.
+  webSessionListener?.(false);
   const filePath = webSessionFilePath();
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -382,50 +379,8 @@ async function loginWithSignInWindow(): Promise<WebLoginResult> {
     buildAuthorizationUrl("r_usr w_usr", codeChallenge),
   );
   saveWebSession(await exchangeWebCode(code, codeVerifier));
+  webSessionListener?.(true);
   return { success: true };
-}
-
-// Fetches a full-quality stream URL for a track through the web player's
-// playback-info endpoint. Only ever called with the first-party web token.
-export async function fetchPlaybackStreamUrl(
-  trackId: string,
-  accessToken: string,
-): Promise<string> {
-  const endpoint = new URL(
-    `https://api.tidal.com/v1/tracks/${encodeURIComponent(trackId)}/playbackinfopostpaywall/v4`,
-  );
-  endpoint.searchParams.set("audioquality", "LOSSLESS");
-  endpoint.searchParams.set("playbackmode", "STREAM");
-  endpoint.searchParams.set("assetpresentation", "FULL");
-
-  const response = await fetch(endpoint, {
-    method: "GET",
-    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Origin: WEB_PLAYER_ORIGIN,
-      "User-Agent":
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36",
-    },
-  });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`TIDAL playback info failed (${response.status}): ${body}`);
-  }
-  const data = (await response.json()) as {
-    trackPresentation?: "FULL" | "PREVIEW";
-    manifestMimeType?: string;
-    manifest?: string;
-  };
-  if (data.trackPresentation === "PREVIEW") {
-    throw new Error("TIDAL only granted a preview for this track.");
-  }
-
-  if (data.manifest) {
-    return data.manifest;
-  }
-
-  throw new Error("TIDAL playback info returned no playable stream.");
 }
 
 export function registerWebSessionHandlers(): void {
@@ -442,16 +397,5 @@ export function registerWebSessionHandlers(): void {
   handleTrusted("web-auth:logout", async () => {
     await logoutWebSession();
     return { success: true };
-  });
-
-  handleTrusted("web-auth:get-session-credentials", () => getWebSessionCredentials());
-
-  handleTrusted("web-auth:get-playback-stream", async (_event, trackId) => {
-    const validTrackId = requireResourceId(trackId, "track id");
-    const accessToken = await getValidWebAccessToken();
-    if (!accessToken) {
-      throw new Error("Playback session not connected.");
-    }
-    return await fetchPlaybackStreamUrl(validTrackId, accessToken);
   });
 }

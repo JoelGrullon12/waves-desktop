@@ -1,10 +1,17 @@
-import axios from "axios";
-import { getValidAccessToken } from "./auth";
 import { handleTrusted } from "./secureIpc";
+import {
+  DEFAULT_COUNTRY_CODE,
+  TIDAL_CATALOG_BASE,
+  fetchJson,
+  httpStatus,
+  requestJson,
+  sleep,
+} from "./tidalApiClient";
 import {
   optionalCursor,
   requireCollectionName,
   requireMixRelationship,
+  requirePlaylistName,
   requireResourceId,
   requireResourceIdList,
   requireSearchQuery,
@@ -39,21 +46,18 @@ import {
 // resolved from the compound document's `included` list via `include=`.
 
 
-const TIDAL_CATALOG_BASE = "https://openapi.tidal.com/v2";
-const DEFAULT_COUNTRY_CODE = "US";
-const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
-const HTTP_TIMEOUT_MS = 15_000;
 
-interface PlaylistSummary {
+export interface PlaylistSummary {
   id: string;
   title: string;
   cover: string | null;
   numberOfItems: number;
   duration: number;
   playlistType: string | null;
+  lastModifiedAt: string | null;
 }
 
-interface AlbumSummary {
+export interface AlbumSummary {
   id: string;
   title: string;
   cover: string | null;
@@ -81,6 +85,7 @@ interface AlbumDetail {
 }
 
 interface PlaylistDetail {
+  description?: string | null;
   id: string;
   title: string;
   cover: string | null;
@@ -89,63 +94,11 @@ interface PlaylistDetail {
   duration: number;
 }
 
-interface TrackPage {
+export interface TrackPage {
   tracks: Track[];
   nextCursor: string | null;
 }
 
-
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-// Only HTTP status matters here; probing `isAxiosError` would couple this file
-// to axios internals. A 429 has a `response.status`, plain network failures do
-// not reach this helper.
-function httpStatus(error: unknown): number | null {
-  if (typeof error !== "object" || error === null) return null;
-  const response = (error as { response?: { status?: unknown } }).response;
-  return typeof response?.status === "number" ? response.status : null;
-}
-
-const MAX_RATE_LIMIT_RETRIES = 4;
-
-async function fetchJson(url: string): Promise<unknown> {
-  const accessToken = await getValidAccessToken();
-  if (!accessToken) throw new Error("Not authenticated: no valid TIDAL access token.");
-
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const response = await axios.get(url, {
-        timeout: HTTP_TIMEOUT_MS,
-        headers: {
-          Accept: JSON_API_MEDIA_TYPE,
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      return response.data;
-    } catch (error) {
-      // TIDAL's edge rate-limits short request bursts with HTTP 429 plus a
-      // Retry-After header. Honoring it keeps multi-page catalog reads stable;
-      // we never saw a 429 here that a pause did not clear.
-      const status = httpStatus(error);
-      if (status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
-        const headers = (error as { response?: { headers?: Record<string, string> } }).response
-          ?.headers;
-        const parsedRetryAfter = Number.parseInt(headers?.["retry-after"] ?? "", 10);
-        const retryAfterSeconds = Number.isFinite(parsedRetryAfter) ? parsedRetryAfter : 1;
-        const delayMilliseconds = Math.max(500, retryAfterSeconds * 1000) * (attempt + 1);
-        console.warn(
-          `catalog: rate limited (429), retrying ${url} in ${delayMilliseconds}ms ` +
-            `(attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`,
-        );
-        await sleep(delayMilliseconds);
-        continue;
-      }
-      throw error;
-    }
-  }
-}
 
 // URLSearchParams.set() replaces every existing value with the same name, so
 // repeated `include` keys must be appended (JSON:API allows any number of
@@ -216,12 +169,12 @@ const COLLECTION_PAGE_PACING_MS = 300;
 
 let collectionPageSizeIndex = 0;
 
-interface CollectionItemsDocument extends RelationshipDocument {
+export interface CollectionItemsDocument extends RelationshipDocument {
   meta?: { nextCursor?: string; [key: string]: unknown };
   links?: { meta?: { nextCursor?: string }; next?: string; [key: string]: unknown };
 }
 
-function nextCursor(document: CollectionItemsDocument): string | null {
+export function nextCursor(document: CollectionItemsDocument): string | null {
   const fromLinkMeta = document.links?.meta?.nextCursor ?? null;
   if (fromLinkMeta) return fromLinkMeta;
   const nextLink = document.links?.next;
@@ -353,7 +306,9 @@ export function getPlaylistTracksPage(
 // its title but the `coverArt` relationship only appears when requested.
 // Fetching the canonical full tracks for the same ids fills artwork. Requests
 // are chunked and paced to respect the edge rate limit.
-const MAX_TRACKS_PER_BATCH = 50;
+// TIDAL answers HTTP 400 ("Filter accepts at most 20 values") above this;
+// verified 2026-11-16. It used to accept 50.
+const MAX_TRACKS_PER_BATCH = 20;
 const TRACKS_BATCH_PACING_MS = 200;
 
 function buildTracksByIdsUrl(trackIds: string[]): string {
@@ -384,8 +339,8 @@ export async function getTracksByIds(trackIds: string[]): Promise<Track[]> {
 // `items` include embeds the playlist resources and `items.coverArt` their
 // artwork; unlike the liked-tracks collection this endpoint accepts those rich
 // includes (playlists/albums reject `items.albums.coverArt` only).
-const HOME_ARTWORK_WIDTH = 640;
-const COLLECTION_BASE_PACING_MS = 200;
+export const HOME_ARTWORK_WIDTH = 640;
+export const COLLECTION_BASE_PACING_MS = 200;
 
 function buildUserPlaylistsUrl(cursor: string | null): string {
   const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/userCollectionPlaylists/me/relationships/items`);
@@ -397,7 +352,7 @@ function buildUserPlaylistsUrl(cursor: string | null): string {
   return itemsUrl.toString();
 }
 
-function playlistSummaryFromResource(
+export function playlistSummaryFromResource(
   resource: ResourceObject,
   byId: Map<string, ResourceObject>,
 ): PlaylistSummary {
@@ -408,6 +363,7 @@ function playlistSummaryFromResource(
     numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
     duration: iso8601DurationToSeconds(attributeString(resource, "duration") ?? ""),
     playlistType: attributeString(resource, "playlistType"),
+    lastModifiedAt: attributeString(resource, "lastModifiedAt"),
   };
 }
 
@@ -442,9 +398,10 @@ export async function getUserPlaylists(): Promise<PlaylistSummary[]> {
 const RECENT_ALBUMS_MAX_ARTISTS = 25;
 const RECENT_ALBUMS_LIMIT = 10;
 
-function buildFollowedArtistsUrl(): string {
+function buildFollowedArtistsUrl(cursor: string | null = null): string {
   const artistsUrl = new URL(`${TIDAL_CATALOG_BASE}/userCollectionArtists/me/relationships/items`);
   artistsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  if (cursor) artistsUrl.searchParams.set("page[cursor]", cursor);
   return artistsUrl.toString();
 }
 
@@ -456,54 +413,93 @@ function buildArtistAlbumsUrl(artistId: string): string {
   return albumsUrl.toString();
 }
 
-async function latestAlbumForArtist(artistId: string): Promise<AlbumSummary | null> {
-  const document = (await fetchJson(buildArtistAlbumsUrl(artistId))) as RelationshipDocument;
-  const byId = indexResources(document.included);
-  const albums = document.data
-    .filter((identifier) => identifier.type === "albums")
-    .map((identifier) => byId.get(identifier.id))
-    .filter((resource): resource is ResourceObject => resource !== undefined);
-
-  let latest: AlbumSummary | null = null;
-  let latestReleaseDate = "";
-  for (const resource of albums) {
-    const releaseDate = attributeString(resource, "releaseDate");
-    if (!releaseDate || releaseDate < latestReleaseDate) continue;
-    const artists = relationshipDataIds(resource, "artists")
-      .map((id) => byId.get(id))
-      .filter((artist): artist is ResourceObject => artist !== undefined)
-      .map((artist) => ({ id: artist.id, name: attributeString(artist, "name") ?? "" }));
-    latest = {
-      id: resource.id,
-      title: attributeString(resource, "title") ?? "",
-      cover: artworkFileHref(relationshipDataIds(resource, "coverArt")[0], byId, HOME_ARTWORK_WIDTH),
-      artists,
-      releaseDate,
-      numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
-    };
-    latestReleaseDate = releaseDate;
-  }
-  return latest;
+export function albumSummaryFromResource(
+  resource: ResourceObject,
+  byId: Map<string, ResourceObject>,
+): AlbumSummary {
+  const artists = relationshipDataIds(resource, "artists")
+    .map((id) => byId.get(id))
+    .filter((artist): artist is ResourceObject => artist !== undefined)
+    .map((artist) => ({ id: artist.id, name: attributeString(artist, "name") ?? "" }));
+  return {
+    id: resource.id,
+    title: attributeString(resource, "title") ?? "",
+    cover: artworkFileHref(relationshipDataIds(resource, "coverArt")[0], byId, HOME_ARTWORK_WIDTH),
+    artists,
+    releaseDate: attributeString(resource, "releaseDate"),
+    numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
+  };
 }
 
-export async function getRecentAlbums(): Promise<AlbumSummary[]> {
-  const artistsDocument = (await fetchJson(buildFollowedArtistsUrl())) as RelationshipDocument;
-  const artistIds = artistsDocument.data
-    .filter((identifier) => identifier.type === "artists")
-    .map((identifier) => identifier.id);
+// Newest albums of one artist, newest first.
+async function latestAlbumsForArtist(artistId: string, limit: number): Promise<AlbumSummary[]> {
+  const document = (await fetchJson(buildArtistAlbumsUrl(artistId))) as RelationshipDocument;
+  const byId = indexResources(document.included ?? []);
+  return document.data
+    .filter((identifier) => identifier.type === "albums")
+    .map((identifier) => byId.get(identifier.id))
+    .filter((resource): resource is ResourceObject => resource !== undefined)
+    .map((resource) => albumSummaryFromResource(resource, byId))
+    .filter((album) => Boolean(album.releaseDate))
+    .sort((left, right) => (right.releaseDate ?? "").localeCompare(left.releaseDate ?? ""))
+    .slice(0, limit);
+}
 
-  const latestByArtist: AlbumSummary[] = [];
-  const artistsToScan = artistIds.slice(0, RECENT_ALBUMS_MAX_ARTISTS);
-  for (let index = 0; index < artistsToScan.length; index++) {
-    if (index > 0) await sleep(COLLECTION_BASE_PACING_MS);
-    const latest = await latestAlbumForArtist(artistsToScan[index]);
-    if (latest) latestByArtist.push(latest);
+// Walks the followed artists (first `maxArtists`) and merges their newest
+// albums into one list ordered by release date. One request per artist: TIDAL
+// has no "new releases from artists I follow" endpoint.
+async function newestAlbumsOfFollowedArtists(
+  maxArtists: number,
+  albumsPerArtist: number,
+  limit: number,
+): Promise<AlbumSummary[]> {
+  const artistIds: string[] = [];
+  let cursor: string | null = null;
+  while (artistIds.length < maxArtists) {
+    if (cursor) await sleep(COLLECTION_BASE_PACING_MS);
+    const artistsDocument = (await fetchJson(
+      buildFollowedArtistsUrl(cursor),
+    )) as CollectionItemsDocument;
+    artistIds.push(
+      ...artistsDocument.data
+        .filter((identifier) => identifier.type === "artists")
+        .map((identifier) => identifier.id),
+    );
+    const next = nextCursor(artistsDocument);
+    if (artistsDocument.data.length === 0 || !next || next === cursor) break;
+    cursor = next;
   }
 
-  latestByArtist.sort((left, right) =>
-    (right.releaseDate ?? "").localeCompare(left.releaseDate ?? ""),
+  const albumsById = new Map<string, AlbumSummary>();
+  const artistsToScan = artistIds.slice(0, maxArtists);
+  for (let index = 0; index < artistsToScan.length; index++) {
+    if (index > 0) await sleep(COLLECTION_BASE_PACING_MS);
+    for (const album of await latestAlbumsForArtist(artistsToScan[index], albumsPerArtist)) {
+      // A collaboration shows up under each of its artists.
+      albumsById.set(album.id, album);
+    }
+  }
+  return [...albumsById.values()]
+    .sort((left, right) => (right.releaseDate ?? "").localeCompare(left.releaseDate ?? ""))
+    .slice(0, limit);
+}
+
+// Home row: the newest release of each of the first followed artists.
+export function getRecentAlbums(): Promise<AlbumSummary[]> {
+  return newestAlbumsOfFollowedArtists(RECENT_ALBUMS_MAX_ARTISTS, 1, RECENT_ALBUMS_LIMIT);
+}
+
+// Releases feed: a wider scan (more artists, several albums each).
+const RELEASES_FEED_MAX_ARTISTS = 60;
+const RELEASES_FEED_ALBUMS_PER_ARTIST = 3;
+const RELEASES_FEED_LIMIT = 60;
+
+export function getReleasesFeed(): Promise<AlbumSummary[]> {
+  return newestAlbumsOfFollowedArtists(
+    RELEASES_FEED_MAX_ARTISTS,
+    RELEASES_FEED_ALBUMS_PER_ARTIST,
+    RELEASES_FEED_LIMIT,
   );
-  return latestByArtist.slice(0, RECENT_ALBUMS_LIMIT);
 }
 
 // --- Mixes --------------------------------------------------------------------
@@ -548,9 +544,15 @@ export async function getMixes(
   let cursor: string | null = null;
   for (;;) {
     if (cursor) await sleep(COLLECTION_BASE_PACING_MS);
-    const document = (await fetchJson(
-      buildMixesUrl(relationship, cursor),
-    )) as CollectionItemsDocument;
+    let document: CollectionItemsDocument;
+    try {
+      document = (await fetchJson(buildMixesUrl(relationship, cursor))) as CollectionItemsDocument;
+    } catch (error) {
+      // TIDAL answers 404 (not an empty list) for an account that has no mixes
+      // of this kind yet.
+      if (httpStatus(error) === 404) break;
+      throw error;
+    }
     identifiers.push(...document.data);
     const next = nextCursor(document);
     if (document.data.length === 0 || !next || next === cursor) break;
@@ -626,6 +628,7 @@ export async function getPlaylistDetail(playlistId: string): Promise<PlaylistDet
     title: attributeString(resource, "name") ?? "",
     cover: artworkFileHref(relationshipDataIds(resource, "coverArt")[0], byId, HOME_ARTWORK_WIDTH),
     playlistType: attributeString(resource, "playlistType"),
+    description: attributeString(resource, "description")?.trim() || null,
     numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
     duration: iso8601DurationToSeconds(attributeString(resource, "duration") ?? ""),
   };
@@ -642,18 +645,8 @@ function buildAlbumDetailUrl(albumId: string): string {
 export async function getAlbumDetail(albumId: string): Promise<AlbumDetail> {
   const document = (await fetchJson(buildAlbumDetailUrl(albumId))) as SingleResourceDocument;
   const resource = document.data;
-  const byId = indexResources(document.included);
-  const artists = relationshipDataIds(resource, "artists")
-    .map((id) => byId.get(id))
-    .filter((artist): artist is ResourceObject => artist !== undefined)
-    .map((artist) => ({ id: artist.id, name: attributeString(artist, "name") ?? "" }));
   return {
-    id: resource.id,
-    title: attributeString(resource, "title") ?? "",
-    cover: artworkFileHref(relationshipDataIds(resource, "coverArt")[0], byId, HOME_ARTWORK_WIDTH),
-    artists,
-    releaseDate: attributeString(resource, "releaseDate"),
-    numberOfItems: attributeNumber(resource, "numberOfItems") ?? 0,
+    ...albumSummaryFromResource(resource, indexResources(document.included ?? [])),
     duration: iso8601DurationToSeconds(attributeString(resource, "duration") ?? ""),
   };
 }
@@ -684,17 +677,139 @@ export async function getMixTracksPage(mixType: string, mixId: string, cursor: s
   return { tracks, nextCursor: nextPageCursor };
 }
 
+// --- Writes to the user's library ----------------------------------------------
+
+const WRITE_PACING_MS = 200;
+
+function trackIdentifiers(trackIds: string[]): { data: ResourceIdentifier[] } {
+  return { data: trackIds.map((id) => ({ id, type: "tracks" })) };
+}
+
+function buildLikedTracksWriteUrl(): string {
+  const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/userCollectionTracks/me/relationships/items`);
+  itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  return itemsUrl.toString();
+}
+
+export async function addTracksToLikes(trackIds: string[]): Promise<void> {
+  for (let i = 0; i < trackIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(WRITE_PACING_MS);
+    const batch = trackIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    await requestJson("POST", buildLikedTracksWriteUrl(), trackIdentifiers(batch));
+  }
+}
+
+export async function removeTracksFromLikes(trackIds: string[]): Promise<void> {
+  for (let i = 0; i < trackIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(WRITE_PACING_MS);
+    const batch = trackIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    await requestJson("DELETE", buildLikedTracksWriteUrl(), trackIdentifiers(batch));
+  }
+}
+
+function buildPlaylistItemsWriteUrl(playlistId: string): string {
+  const itemsUrl = new URL(`${TIDAL_CATALOG_BASE}/playlists/${playlistId}/relationships/items`);
+  itemsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  return itemsUrl.toString();
+}
+
+// Appends the tracks at the end of the playlist.
+export async function addTracksToPlaylist(playlistId: string, trackIds: string[]): Promise<void> {
+  for (let i = 0; i < trackIds.length; i += MAX_TRACKS_PER_BATCH) {
+    if (i > 0) await sleep(WRITE_PACING_MS);
+    const batch = trackIds.slice(i, i + MAX_TRACKS_PER_BATCH);
+    await requestJson("POST", buildPlaylistItemsWriteUrl(playlistId), trackIdentifiers(batch));
+  }
+}
+
+export async function createPlaylist(name: string): Promise<PlaylistSummary> {
+  const playlistsUrl = new URL(`${TIDAL_CATALOG_BASE}/playlists`);
+  playlistsUrl.searchParams.set("countryCode", DEFAULT_COUNTRY_CODE);
+  const document = (await requestJson("POST", playlistsUrl.toString(), {
+    data: { type: "playlists", attributes: { name, accessType: "UNLISTED" } },
+  })) as SingleResourceDocument;
+  // A freshly created playlist has no artwork yet, so nothing is included.
+  return playlistSummaryFromResource(document.data, indexResources(document.included ?? []));
+}
+
+export async function deletePlaylist(playlistId: string): Promise<void> {
+  await requestJson("DELETE", `${TIDAL_CATALOG_BASE}/playlists/${playlistId}`);
+}
+
+// What the local copy of the library (metadataCache.ts) plugs in here: whole
+// lists served without a request, and news of every change the app makes.
+export type LibraryChange =
+  | { type: "likes-added"; trackIds: string[] }
+  | { type: "likes-removed"; trackIds: string[] }
+  | { type: "playlist-tracks-added"; playlistId: string; trackIds: string[] }
+  | { type: "playlist-created"; playlistId: string; title: string }
+  | { type: "playlist-renamed"; playlistId: string; title: string }
+  | { type: "playlist-deleted"; playlistId: string };
+
+export interface LibraryHooks {
+  cachedTracks: (collectionId: string) => Track[] | null;
+  onChange: (change: LibraryChange) => void;
+}
+
+const LIKED_COLLECTION_ID = "liked";
+let libraryHooks: LibraryHooks | null = null;
+
+export function setLibraryHooks(hooks: LibraryHooks): void {
+  libraryHooks = hooks;
+}
+
+// For writes made outside this module (playlistEditing.ts).
+export function reportLibraryChange(change: LibraryChange): void {
+  libraryHooks?.onChange(change);
+}
+
+// The first page of a cached list is the whole list.
+function cachedFirstPage(collectionId: string, cursor: string | null): TrackPage | null {
+  if (cursor) return null;
+  const tracks = libraryHooks?.cachedTracks(collectionId) ?? null;
+  return tracks ? { tracks, nextCursor: null } : null;
+}
+
 export function registerCatalogHandlers(): void {
+  handleTrusted("catalog:add-tracks-to-likes", async (_event, rawTrackIds) => {
+    const trackIds = requireResourceIdList(rawTrackIds, "track ids");
+    await addTracksToLikes(trackIds);
+    libraryHooks?.onChange({ type: "likes-added", trackIds });
+  });
+  handleTrusted("catalog:remove-tracks-from-likes", async (_event, rawTrackIds) => {
+    const trackIds = requireResourceIdList(rawTrackIds, "track ids");
+    await removeTracksFromLikes(trackIds);
+    libraryHooks?.onChange({ type: "likes-removed", trackIds });
+  });
+  handleTrusted("catalog:add-tracks-to-playlist", async (_event, rawPlaylistId, rawTrackIds) => {
+    const playlistId = requireResourceId(rawPlaylistId, "playlist id");
+    const trackIds = requireResourceIdList(rawTrackIds, "track ids");
+    await addTracksToPlaylist(playlistId, trackIds);
+    libraryHooks?.onChange({ type: "playlist-tracks-added", playlistId, trackIds });
+  });
+  handleTrusted("catalog:create-playlist", async (_event, name) => {
+    const playlist = await createPlaylist(requirePlaylistName(name));
+    libraryHooks?.onChange({ type: "playlist-created", playlistId: playlist.id, title: playlist.title });
+    return playlist;
+  });
+  handleTrusted("catalog:delete-playlist", async (_event, rawPlaylistId) => {
+    const playlistId = requireResourceId(rawPlaylistId, "playlist id");
+    await deletePlaylist(playlistId);
+    libraryHooks?.onChange({ type: "playlist-deleted", playlistId });
+  });
   handleTrusted("catalog:search-tracks", (_event, query) => searchTracks(requireSearchQuery(query)));
   handleTrusted("catalog:get-album-tracks-page", (_event, albumId, cursor) =>
     getAlbumTracksPage(requireResourceId(albumId, "album id"), optionalCursor(cursor)),
   );
-  handleTrusted("catalog:get-playlist-tracks-page", (_event, playlistId, cursor) =>
-    getPlaylistTracksPage(requireResourceId(playlistId, "playlist id"), optionalCursor(cursor)),
-  );
-  handleTrusted("catalog:get-favorite-tracks-page", (_event, cursor) =>
-    getLikedTracksPage(optionalCursor(cursor)),
-  );
+  handleTrusted("catalog:get-playlist-tracks-page", (_event, rawPlaylistId, rawCursor) => {
+    const playlistId = requireResourceId(rawPlaylistId, "playlist id");
+    const cursor = optionalCursor(rawCursor);
+    return cachedFirstPage(playlistId, cursor) ?? getPlaylistTracksPage(playlistId, cursor);
+  });
+  handleTrusted("catalog:get-favorite-tracks-page", (_event, rawCursor) => {
+    const cursor = optionalCursor(rawCursor);
+    return cachedFirstPage(LIKED_COLLECTION_ID, cursor) ?? getLikedTracksPage(cursor);
+  });
   handleTrusted("catalog:get-liked-track-ids-page", (_event, cursor) =>
     getLikedTrackIdsPage(optionalCursor(cursor)),
   );
@@ -703,6 +818,7 @@ export function registerCatalogHandlers(): void {
   );
   handleTrusted("catalog:get-user-playlists", () => getUserPlaylists());
   handleTrusted("catalog:get-recent-albums", () => getRecentAlbums());
+  handleTrusted("catalog:get-releases-feed", () => getReleasesFeed());
   handleTrusted("catalog:get-mixes", (_event, relationship) =>
     getMixes(requireMixRelationship(relationship)),
   );

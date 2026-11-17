@@ -1,46 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { canSkipAnother, isPlayInterruption, isSkippableError, MAX_CONSECUTIVE_SKIPS } from "@/lib/playbackErrors";
+import {
+  canSkipAnother,
+  isPlayInterruption,
+  isSkippableError,
+  MAX_CONSECUTIVE_SKIPS,
+  PlaybackFailure,
+} from "@/lib/playbackErrors";
 
 describe("isPlayInterruption", () => {
-  it("recognizes an AbortError by name", () => {
-    const error = new Error("The operation was aborted.");
-    error.name = "AbortError";
-    expect(isPlayInterruption(error)).toBe(true);
-  });
-
-  it("recognizes the browser pause-interruption message", () => {
-    const error = new Error(
-      "The play() request was interrupted by a call to pause(). https://goo.gl/LdLk22",
-    );
-    expect(isPlayInterruption(error)).toBe(true);
-  });
-
-  it("recognizes the new-load interruption message on plain objects", () => {
-    expect(
-      isPlayInterruption({ message: "The play() request was interrupted by a new load request." }),
-    ).toBe(true);
+  it("recognizes a play request replaced by a newer one", () => {
+    expect(isPlayInterruption(new PlaybackFailure("superseded"))).toBe(true);
   });
 
   it("does not hide real failures", () => {
+    expect(isPlayInterruption(new PlaybackFailure("timeout"))).toBe(false);
     expect(isPlayInterruption(new Error("Network down"))).toBe(false);
-    expect(isPlayInterruption("interrupted by a call to pause")).toBe(false);
     expect(isPlayInterruption(null)).toBe(false);
   });
 });
 
 describe("isSkippableError", () => {
-  it("skips tracks the service refuses to play", () => {
-    expect(isSkippableError({ errorId: "PENotAllowed", errorCode: "NPBI0" })).toBe(true);
-    expect(isSkippableError({ errorId: "PEContentNotAvailableInLocation" })).toBe(true);
-    expect(isSkippableError({ errorId: "PEContentNotAvailableForSubscription" })).toBe(true);
+  it("skips tracks TIDAL refuses to play", () => {
+    expect(isSkippableError(new PlaybackFailure("unavailable"))).toBe(true);
   });
 
-  it("does not skip transient or unknown failures", () => {
-    expect(isSkippableError({ errorId: "PERetryable" })).toBe(false);
-    expect(isSkippableError({ errorId: "PENetwork" })).toBe(false);
-    expect(isSkippableError({ errorId: "EUnexpected" })).toBe(false);
+  it("does not skip transient or engine failures", () => {
+    expect(isSkippableError(new PlaybackFailure("timeout"))).toBe(false);
+    expect(isSkippableError(new PlaybackFailure("engine-unavailable"))).toBe(false);
+    expect(isSkippableError(new PlaybackFailure("not-logged-in"))).toBe(false);
     expect(isSkippableError(new Error("boom"))).toBe(false);
     expect(isSkippableError(undefined)).toBe(false);
+  });
+});
+
+describe("PlaybackFailure", () => {
+  it("carries a message meant for the user", () => {
+    expect(new PlaybackFailure("not-logged-in").message).toContain("Settings");
   });
 });
 

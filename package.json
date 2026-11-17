@@ -1,7 +1,7 @@
 {
   "name": "waves-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.5.0",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -13,8 +13,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
-    "package:linux": "npm run build && electron-builder --linux",
-    "package:win": "npm run build && electron-builder --win"
+    "package:linux": "npm run build && node scripts/packageApp.mjs linux",
+    "package:win": "npm run build && node scripts/packageApp.mjs win"
   },
   "engines": {
     "node": ">=22.12.0"
@@ -24,12 +24,12 @@
     "@fontsource-variable/geist": "^5.2.9",
     "@libsql/client": "^0.18.0",
     "@tanstack/react-query": "^5.101.1",
-    "@tidal-music/player": "^0.20.1",
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "lucide-react": "^1.21.0",
+    "qrcode-generator": "^1.5.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^8.3.1",
@@ -43,8 +43,6 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.3.1",
-    "@tidal-music/common": "^0.2.1",
-    "@tidal-music/event-producer": "^2.4.2",
     "@types/node": "^22.10.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

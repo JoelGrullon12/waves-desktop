@@ -21,6 +21,22 @@ export function requireResourceId(value: unknown, label: string): string {
   return value;
 }
 
+export function optionalResourceId(value: unknown, label: string): string | null {
+  return value == null ? null : requireResourceId(value, label);
+}
+
+export function requireNumberInRange(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) {
+    throw invalidArgument(label);
+  }
+  return value;
+}
+
 // The mix type is the JSON:API resource type TIDAL returns ("playlists", ...)
 // and is used as a path segment.
 export function requireCollectionName(value: unknown, label: string): string {
@@ -54,8 +70,60 @@ export function requireSearchQuery(value: unknown): string {
   return query;
 }
 
-export function requireResourceIdList(value: unknown, label: string): string[] {
-  if (!Array.isArray(value) || value.length > MAX_TRACK_IDS_PER_CALL) throw invalidArgument(label);
+const MAX_PLAYLIST_NAME_LENGTH = 100;
+
+export function requirePlaylistName(value: unknown): string {
+  if (typeof value !== "string") throw invalidArgument("playlist name");
+  const name = value.trim();
+  if (name.length === 0 || name.length > MAX_PLAYLIST_NAME_LENGTH) {
+    throw invalidArgument("playlist name");
+  }
+  return name;
+}
+
+// TIDAL's limit when a playlist is edited.
+const MAX_PLAYLIST_DESCRIPTION_LENGTH = 500;
+
+// Empty is allowed: it clears the description.
+export function requirePlaylistDescription(value: unknown): string {
+  if (typeof value !== "string") throw invalidArgument("playlist description");
+  const description = value.trim();
+  if (description.length > MAX_PLAYLIST_DESCRIPTION_LENGTH) {
+    throw invalidArgument(`playlist description (at most ${MAX_PLAYLIST_DESCRIPTION_LENGTH} characters)`);
+  }
+  return description;
+}
+
+// Preference keys are fixed names chosen by the app ("player.volume"); the
+// value is free text the app serializes itself.
+const PREFERENCE_KEY_PATTERN = /^[a-z][A-Za-z0-9.]{0,63}$/;
+const MAX_PREFERENCE_VALUE_LENGTH = 4096;
+
+export function requireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw invalidArgument(label);
+  return value;
+}
+
+export function requirePreferenceKey(value: unknown): string {
+  if (typeof value !== "string" || !PREFERENCE_KEY_PATTERN.test(value)) {
+    throw invalidArgument("preference key");
+  }
+  return value;
+}
+
+export function requirePreferenceValue(value: unknown): string {
+  if (typeof value !== "string" || value.length > MAX_PREFERENCE_VALUE_LENGTH) {
+    throw invalidArgument("preference value");
+  }
+  return value;
+}
+
+export function requireResourceIdList(
+  value: unknown,
+  label: string,
+  maximumLength: number = MAX_TRACK_IDS_PER_CALL,
+): string[] {
+  if (!Array.isArray(value) || value.length > maximumLength) throw invalidArgument(label);
   return value.map((id) => requireResourceId(id, label));
 }
 
@@ -99,6 +167,60 @@ export function resolveTidalAppCredentials(
   const clientSecret = environment.TIDAL_CLIENT_SECRET?.trim();
   if (clientId && clientSecret) return { credentials: { clientId, clientSecret }, source: "env" };
   return stored ? { credentials: stored, source: "stored" } : null;
+}
+
+export interface TursoConfig {
+  databaseUrl: string;
+  authToken: string;
+}
+
+const MAX_TURSO_URL_LENGTH = 512;
+const TURSO_TOKEN_PATTERN = /^[A-Za-z0-9_.+/=-]{16,4096}$/;
+
+// A Turso database URL (`libsql://name-org.turso.io`) or a plain HTTPS one;
+// the HTTP client of @libsql/client accepts both.
+export function parseTursoConfig(databaseUrl: unknown, authToken: unknown): TursoConfig {
+  if (typeof databaseUrl !== "string" || typeof authToken !== "string") {
+    throw invalidArgument("Turso settings");
+  }
+  const url = databaseUrl.trim();
+  const token = authToken.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw invalidArgument("database URL");
+  }
+  const isSupportedProtocol = parsed.protocol === "libsql:" || parsed.protocol === "https:";
+  if (!isSupportedProtocol || !parsed.hostname || url.length > MAX_TURSO_URL_LENGTH || parsed.username || parsed.password) {
+    throw invalidArgument("database URL");
+  }
+  if (!TURSO_TOKEN_PATTERN.test(token)) throw invalidArgument("auth token");
+  return { databaseUrl: url, authToken: token };
+}
+
+// Same rule as the TIDAL credentials: both TURSO_* values in .env win over
+// what was saved in Settings.
+export function resolveTursoConfig(
+  environment: { TURSO_DATABASE_URL?: string; TURSO_AUTH_TOKEN?: string },
+  stored: { tursoDatabaseUrl?: string; tursoAuthToken?: string },
+): { config: TursoConfig; source: "env" | "stored" } | null {
+  const environmentUrl = environment.TURSO_DATABASE_URL?.trim();
+  const environmentToken = environment.TURSO_AUTH_TOKEN?.trim();
+  if (environmentUrl && environmentToken) {
+    return { config: { databaseUrl: environmentUrl, authToken: environmentToken }, source: "env" };
+  }
+  if (stored.tursoDatabaseUrl && stored.tursoAuthToken) {
+    return { config: { databaseUrl: stored.tursoDatabaseUrl, authToken: stored.tursoAuthToken }, source: "stored" };
+  }
+  return null;
+}
+
+export function requireNetworkPort(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1024 || value > 65535) {
+    throw invalidArgument("port (use a number from 1024 to 65535)");
+  }
+  return value;
 }
 
 export interface TrustedRenderer {

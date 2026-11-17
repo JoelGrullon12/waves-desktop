@@ -22,7 +22,6 @@ Its core purpose is to provide a superior listening experience over the official
 - Smart shuffle logic that prioritizes lesser-played songs (the most important feature)
 - Cross-device play count synchronization via cloud database
 - Mobile remote control from the phone browser (no app install required)
-- A unified global playlist combining liked tracks and playlist tracks
 - A dynamic favorites playlist of top-played tracks in a rolling time window
 
 It runs on **Windows and Linux (Bazzite/Fedora-based)** with identical behavior on both platforms.
@@ -70,7 +69,7 @@ truly plug-and-play on both Windows and Linux.
 | Tailwind CSS | 4 | Utility-first styling |
 | shadcn/ui (`shadcn` + base-ui) | latest | Accessible component primitives |
 | React Router | v8 (`react-router`) | Client-side routing |
-| TIDAL Web SDK | `@tidal-music/player ^0.20.1` | Audio playback — the only permitted playback path |
+| TIDAL web player | `https://tidal.com/` in a hidden window | Audio playback — the only playback path (see "Playback engine") |
 
 ### Desktop Shell (Electron)
 
@@ -108,7 +107,8 @@ Designed behavior: on **first launch**, Electron's Component Updater downloads a
 the CDM; the main process awaits `components.whenReady()` before creating the
 `BrowserWindow`. In this environment that auto-install FAILED — `whenReady()` rejects with
 "No component available" even though Google's update endpoints are reachable (the updater
-returns no component for this request). `components.whenReady()` is wrapped in try/catch in
+returns no component for this request). `components.whenReady()` is wrapped in try/catch and a
+20 s timeout (it has also been seen to never answer) in
 `electron/main/index.ts` so the window still opens.
 
 **Automatic install (2026-10-23):** the Component Updater downloads the official package
@@ -130,68 +130,60 @@ data dir (app name `waves-desktop`).
 | `electron` (`ipcMain`) | IPC server — handles calls from the renderer process |
 | `axios` | HTTP proxy to TIDAL API v2 — credentials never touch the renderer |
 | `node:sqlite` (built-in) | Synchronous SQLite — play counts, preferences, queue state |
-| `@libsql/client` | Turso (cloud SQLite) client for cross-device sync (Phase 5) |
-| `ws` | WebSocket server for mobile remote control (Phase 6) |
+| `@libsql/client` (`/web` entry, HTTP only, no native module) | Turso (cloud SQLite) client for cross-device play count sync |
+| `ws` + `node:http` | Phone remote: page and WebSocket served on the local network |
+| `qrcode-generator` | (renderer) QR code that pairs a phone with the remote |
 | `dotenv` | Loads `.env` at startup |
 
 ### IPC Bridge
 
-A `contextBridge` preload script exposes a typed `window.api` object to the renderer;
-method names mirror the old Tauri `invoke()` calls so renderer changes were minimal.
-Current capabilities:
-- **App credentials:** `getCredentialsStatus`, `saveCredentials` (TIDAL dashboard
-  `client_id`/`client_secret`, asked on first launch)
-- **Auth:** `login`, `logout`, `isAuthenticated`, `getSessionCredentials`, `getAccessToken`
-- **Catalog:** `searchTracks`, `getAlbumTracksPage`, `getPlaylistTracksPage`, `getMixTracksPage`
-- **Home / detail:** `getUserPlaylists`, `getRecentAlbums`, `getMixes`, `getAlbumDetail`,
-  `getPlaylistDetail`, `getMixDetail`
-- **Liked tracks:** `getFavoriteTracksPage(cursor)`, `getLikedTrackIdsPage(cursor)`,
-  `getTracksByIds(ids)`
-- **First-party web session (FULL playback):** `webLogin` (opens a sign-in window that captures
-  the redirect code by itself), `webLogout`, `isWebSessionConnected`,
-  `getWebSessionCredentials`, `getWebPlaybackStream`
+A `contextBridge` preload script exposes a typed `window.api` object to the renderer.
+The exact contract is typed once in `src/types/global.d.ts` — that file is the source of
+truth (do not duplicate it into docs). Channel families:
+- `credentials:*` — TIDAL dashboard client id/secret (asked on first launch, editable in Settings)
+- `app-data:*` — data folder (info, open, move through a native folder picker, back to default)
+- `auth:*` — Dashboard app session (login, logout, is-authenticated). No handler returns a token.
+- `web-auth:*` — first-party web session used by the playback engine (login, logout, is-connected)
+- `catalog:get-lyrics` / `catalog:get-track-credits` — lyrics and credits (web session, see below)
+- `library:update-playlist` / `library:*-playlist-cover*` — edit a playlist the user owns (the image
+  is picked in a native dialog in the main process)
+- `catalog:*` / `library:*` — TIDAL v2 reads (search, albums, playlists, mixes, artists, liked
+  tracks, releases feed, collection albums/artists) and writes (like/unlike, add to playlist,
+  create/delete playlist)
+- `player:*` — playback engine commands, plus the `player:state` and `player:media-key` events
+- `preferences:*` / `queue:*` — settings and the saved play queue (SQLite)
+- `stats:*` — play counts, smart shuffle order, top played
+- `sync:*` — Turso sync status / run now / get, save (checked first) and clear its settings
+- `remote:*` — phone remote (info, on/off, port, new pairing code, state publishing, `remote:command` event)
+- `cache:*` — local library copy (status, on/off, refresh, search, playlist memberships,
+  `cache:status` event)
+- `debug:api-get` — only answered with `WAVES_DEBUG_API=1`
 
 Every handler is registered through `handleTrusted` (`electron/main/secureIpc.ts`): the sender
 frame must be the dev server or a `file:` page, and every argument is validated by
 `electron/main/validation.ts` (IDs `[A-Za-z0-9_-]{1,64}`, bounded cursors/queries/lists) before it
 reaches a URL. New handlers must follow the same pattern.
 
-The exact contract is typed once in `src/types/global.d.ts` — that file is the source of
-truth (do not duplicate it into docs). The `stats:*` methods (`incrementPlayCount`,
-`getSmartShuffleQueue`) were deliberately stripped during the migration and will be re-added
-with the main-process repositories in **Phase 4** (see `ROADMAP.md`).
-
 ### Database
 
 | Technology | Role |
 |---|---|
 | SQLite via `node:sqlite` | Local database — zero config, lives in `app.getPath('userData')` |
-| Turso (libSQL) | Cloud mirror of the same SQLite schema — cross-device sync (Phase 5) |
+| Turso (libSQL) | Cloud copy of the play counts — cross-device sync |
 
-#### Core Schema
+#### Schema
 
-```sql
-CREATE TABLE IF NOT EXISTS track_plays (
-    track_id        TEXT PRIMARY KEY,
-    play_count      INTEGER NOT NULL DEFAULT 0,
-    last_played_at  TEXT
-);
+The source of truth is `electron/main/databaseSchema.ts` (`DATABASE_SCHEMA` + `migrateDatabase`
+for changes to existing tables). Tables:
+- `track_plays` (`track_id`, `play_count`, `last_played_at`, `baseline_count`) — `baseline_count`
+  is the level a track enters smart shuffle at; it is local and never synced.
+- `user_preferences` — no longer used: earlier versions kept the settings here; they are moved
+  once into `settings.ini` (see "Configuration and data folder") and the rows are deleted.
+- `queued_tracks` — the play queue as it was when the app closed.
+- `cached_tracks`, `cached_collections`, `cached_collection_items` — the optional local library copy.
 
-CREATE TABLE IF NOT EXISTS user_preferences (
-    preference_key   TEXT PRIMARY KEY,
-    preference_value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS queued_tracks (
-    position    INTEGER PRIMARY KEY,
-    track_id    TEXT NOT NULL,
-    added_at    TEXT NOT NULL
-);
-```
-
-Sync strategy: writes go to both local SQLite and Turso; on startup, pull remote changes
-into local. No conflict resolution — single user, last write wins. (The Turso sync itself
-is Phase 5 of the roadmap; the local schema is already in place.)
+No ORM, raw SQL. Repositories take the connection in their constructor so they are unit-tested
+against an in-memory database with the real schema.
 
 ### External Services
 
@@ -199,37 +191,69 @@ is Phase 5 of the roadmap; the local schema is already in place.)
 |---|---|
 | `openapi.tidal.com/v2` | TIDAL v2 API — catalog, search, playlists, mixes (JSON:API) |
 | `auth.tidal.com/v1/oauth2` | OAuth 2.0 Authorization Code + PKCE |
-| `@tidal-music/player` | TIDAL Web SDK — audio playback with Widevine DRM |
-| Turso | Cloud SQLite for play count sync (Phase 5) |
+| `https://tidal.com/` | TIDAL's web player, loaded in a hidden window — audio playback with Widevine DRM |
+| Turso | Cloud SQLite for play count sync |
+
+## Configuration and data folder
+
+A packaged build has no `.env`, so everything the user configures is kept in the **data folder**
+(`electron/main/appDataLocation.ts`): by default Electron's `userData`
+(`~/.config/waves-desktop`, `%APPDATA%\waves-desktop`). Settings → App data shows it, opens it
+and moves it; the chosen folder is written in `waves-location.ini` in `userData`, and moving
+copies the files, removes the originals and restarts the app. Chromium's data (TIDAL web
+session, Widevine CDM) and the OAuth token bundle always stay in `userData`.
+
+In the data folder:
+- `settings.ini` — every renderer setting (keys in `src/lib/preferences.ts`) plus `cache.enabled`,
+  `remote.enabled`, `remote.port`. Hand-written INI reader/writer (`iniFile.ts`), sections from
+  the first segment of the dotted key; written atomically (`preferencesFile.ts`).
+- `app-secrets` — one safeStorage-encrypted JSON (`appSecrets.ts`): TIDAL client id/secret,
+  Turso URL/token, the remote's pairing token. No IPC handler returns these values.
+- `waves-desktop.db` — SQLite (unless `LOCAL_SQLITE_PATH` points elsewhere).
+- `logs/main.log` (`fileLog.ts`, rotated at 2 MB into `main.old.log`) — everything the main
+  process prints, renderer errors/warnings, failed loads and crashed processes of the window,
+  utility processes that die (`child-process-gone`), DRM-looking console errors of the engine page
+  and, once per playback, the state of the engine page's media elements (volume, muted,
+  readyState, MediaKeys, error). First thing to read when a packaged build misbehaves, above all on
+  Windows. A page that fails to load shows an error page with the log path instead of staying
+  blank; a React render error shows `AppErrorBoundary`.
+
+Settings edits Turso (checked with `SELECT 1` before saving, sync restarts without a relaunch),
+the remote's port and the TIDAL credentials. A value set in `.env` wins over the saved one
+(`resolveTidalAppCredentials` / `resolveTursoConfig` in `validation.ts`) and Settings then shows
+it as read-only.
 
 ## Environment Variables
 
-Never commit these. Single `.env` file at the project root.
-The Electron main process loads it with `dotenv` at startup.
+Never commit these. Single `.env` file at the project root, **development only** (a packaged
+build is configured from Settings). The Electron main process loads it with `dotenv` at startup.
 
 ```env
-# TIDAL Application credentials (from https://developer.tidal.com/dashboard)
+# Development override: a packaged build asks for these on first launch
 TIDAL_CLIENT_ID=
 TIDAL_CLIENT_SECRET=
-TIDAL_REDIRECT_URI=http://127.0.0.1:8899/tidal-callback
 
-# Turso cloud database for cross-device sync
+# Turso cloud database for play count sync (both empty = sync off, everything stays local)
 TURSO_DATABASE_URL=
 TURSO_AUTH_TOKEN=
 
-# WebSocket port for mobile remote control
-REMOTE_CONTROL_WEBSOCKET_PORT=47836
+# Port of the phone remote (default 47836)
+REMOTE_CONTROL_WEBSOCKET_PORT=
 
 # Optional: override SQLite file path (defaults to Electron userData dir)
 LOCAL_SQLITE_PATH=
 ```
 
 `TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET` are a **development override**: a packaged build asks
-for them on first launch and stores them encrypted (`safeStorage`, file mode 0600) in
-`userData/tidal-app-credentials`. When both are set in `.env` they win over the stored ones.
-Besides those, the main process only reads `LOCAL_SQLITE_PATH`. The redirect URI is hardcoded in
-`electron/main/auth.ts` (`TIDAL_REDIRECT_URI` is documentation only), and the `TURSO_*` /
-`REMOTE_CONTROL_*` variables are reserved for Phases 5 and 6 (see `.env.example`).
+for them on first launch and stores them in `app-secrets`. When both are set in `.env` they win
+over the stored ones (same rule for `TURSO_*` and `REMOTE_CONTROL_WEBSOCKET_PORT`).
+The redirect URI is hardcoded in `electron/main/auth.ts`.
+
+Debug-only variables: `WAVES_SHOW_ENGINE=1` (show the engine window), `WAVES_DEBUG_API=1`
+(enable `debug:api-get`), `WAVES_SYNC_TABLE` (Turso table name, to test sync against a
+throwaway table), `WAVES_USER_DATA_DIRECTORY` (absolute path used as `userData`, to run checks
+against a copy of the profile instead of the real one), `WAVES_DEBUG_COVER_FILE` (with
+`WAVES_DEBUG_API=1`: the image the cover upload uses instead of opening the file dialog).
 
 ## TIDAL OAuth Redirect URI
 
@@ -251,19 +275,39 @@ log out and log in once to re-mint.
 
 ## TIDAL v2 API — Critical Knowledge
 
-- Base URL: `https://openapi.tidal.com/v2`; default country code `US`.
+- Base URL: `https://openapi.tidal.com/v2`. URLs are built with `countryCode=US` and
+  `tidalApiClient.ts` replaces it with the account's own country (read once per session).
 - Auth: `Authorization: Bearer <access_token>`; `Content-Type: application/vnd.api+json`.
 - Track IDs are opaque strings. Durations are ISO 8601 (`PT2M58S`) — parse to seconds.
 - **Never use the v1 API** (`api.tidal.com/v1`) — it rejects all modern/dashboard tokens
   with 403/11004 (it validates legacy scope names; no dashboard setting grants them).
 - Search: `GET /searchResults?query=...&include=tracks,tracks.albums,tracks.artists`.
   Use the relevance order from the `tracks` relationship array, not the `included` array.
+  Albums, artists and playlists need one request per kind (`searchCollections` in
+  `libraryCatalog.ts`): a single request fills only one relationship and allows 10 includes.
+- `GET /tracks?filter[id]=...` accepts at most **20** ids per request (HTTP 400 above that,
+  verified 2026-11-16; it used to accept 50). `getTracksByIds` chunks accordingly.
+- Playlist folders can not be read with the v2 API (404). A new playlist takes 1-2 s to be listed.
+- **Editing a playlist** (`playlistEditing.ts`): `PATCH /playlists/{id}` with `name` (≤ 250, the
+  app keeps 100) and `description` (≤ 500) works with the app token. **Covers do not**: `POST
+  /artworks` (needed to upload an image) answers 403 "Access tier is insufficient", and
+  `/playlists/{id}/relationships/suggestedCoverArts` is always empty (verified 2026-11-16). The
+  editor still tries and explains the refusal; do not route these writes through the web session
+  to get around the developer app's access tier.
 - Album tracks: `GET /albums/{id}/relationships/items?include=items.albums,items.artists`.
 - Playlist tracks: `GET /playlists/{id}/relationships/items?include=items.albums,items.artists`.
 - Album items have `trackNumber` and `volumeNumber` in their `meta` object.
 - Artwork: the short `coverArt` id 403s on the CDN — resolve the real href from the artwork
   resource's `attributes.files` (see `artworkFileHref` in `electron/main/catalog.ts`).
 - Search and items URLs now request `include=...coverArt`.
+- **Lyrics and credits** (`/tracks/{id}/relationships/lyrics?include=lyrics`,
+  `/tracks/{id}/relationships/credits?include=credits,credits.category`) answer **empty to the
+  developer app token** and full data to the first-party web session (verified 2026-11-16 on
+  several catalog tracks; TIDAL's own web player requests `include=lyrics` the same way). So
+  `trackDetails.ts` sends exactly these two requests with the web session (`fetchJson(url, "web")`
+  in `tidalApiClient.ts`); the token stays in the main process. Lyrics carry `lrcText` (synced,
+  Musixmatch) and `text`; credits are `name` + `role` with `artist` and `category`
+  (`artistRoles`) relationships. There are no album credits: an album's are its tracks' credits.
 
 ### Liked tracks (`/userCollectionTracks/me/relationships/items`) — hard rules
 
@@ -280,7 +324,7 @@ Verified constraints; do not "optimize" around them:
   `artists.name`, `duration`, `title` (with `-` prefix for descending). Shuffle must be
   client-side.
 - **Rate limits:** 429 retries must honor `Retry-After` + pacing between pages/batches
-  (300/200 ms) + chunks of `filter[id]` of 50 (`MAX_TRACKS_PER_BATCH = 50`). When a fetch
+  (300/200 ms) + chunks of `filter[id]` of 20 (`MAX_TRACKS_PER_BATCH = 20`). When a fetch
   exhausts retries, stop and show the error — do not wait forever.
 
 ## Project Directory Structure
@@ -310,71 +354,83 @@ waves-desktop/
 │   │   ├── auth.ts                 # OAuth PKCE, safeStorage token encryption/decryption, refresh
 │   │   ├── tidalAppCredentials.ts  # First-launch TIDAL client id/secret (safeStorage) + IPC
 │   │   ├── webSessionAuth.ts       # First-party web session for FULL playback (sign-in window)
+│   │   ├── tidalWebPlayer.ts       # Playback engine: hidden window with TIDAL's web player
+│   │   ├── tidalWebPlayerScript.ts # Everything specific to TIDAL's page (Redux actions, snapshot)
+│   │   ├── appDataLocation.ts      # Data folder: where it is, moving it + IPC
+│   │   ├── appSecrets.ts           # Encrypted secrets file (TIDAL app, Turso, remote token)
+│   │   ├── fileLog.ts              # Copies the main process console into logs/main.log
+│   │   ├── iniFile.ts              # Pure INI reader/writer
+│   │   ├── preferencesFile.ts      # settings.ini store + one-time import from SQLite
 │   │   ├── secureIpc.ts            # handleTrusted: sender check for every IPC handler
 │   │   ├── validation.ts           # Pure argument validation, sender trust, credential parsing
 │   │   ├── privateFile.ts          # Writes files with mode 0600
 │   │   ├── widevineInstaller.ts    # Unpacks the cached Widevine CRX into userData
 │   │   ├── crxArchive.ts           # CRX3 header + minimal ZIP reader (node:zlib, pure)
-│   │   ├── catalog.ts              # Proxy to TIDAL v2 API (search, albums, playlists, mixes, liked tracks)
-│   │   ├── tidalParsers.ts         # Pure JSON:API → Track parsing (unit-tested, no electron/axios imports)
-│   │   └── database.ts             # SQLite via node:sqlite — connection + schema
+│   │   ├── tidalApiClient.ts       # Authorized requests, 429 retries, account country, debug explorer
+│   │   ├── catalog.ts              # TIDAL v2 reads and writes (search, albums, playlists, mixes, likes)
+│   │   ├── libraryCatalog.ts       # Artists, collection albums/artists, search of albums/artists/playlists
+│   │   ├── tidalParsers.ts         # Pure JSON:API → Track parsing
+│   │   ├── database.ts             # SQLite connection (node:sqlite)
+│   │   ├── databaseSchema.ts       # Schema + migrations (usable with an in-memory database)
+│   │   ├── preferencesRepository.ts # Settings singleton, saved queue + IPC
+│   │   ├── playCountRepository.ts  # Play counts, baselines, top played + IPC
+│   │   ├── smartShuffle.ts         # Pure smart shuffle ordering
+│   │   ├── playSync.ts             # Pure merge rules of the cloud sync
+│   │   ├── tursoSync.ts            # Turso sync service + IPC
+│   │   ├── remoteControl.ts        # Phone remote server (node:http + ws) + IPC
+│   │   ├── remoteControlPage.ts    # The self-contained page a phone opens
+│   │   ├── remoteProtocol.ts       # Pure validation of remote commands/state and of the token
+│   │   ├── trackDetails.ts         # Lyrics and credits of a track (web session) + IPC
+│   │   ├── playlistEditing.ts      # Name, description and cover of a user's playlist + IPC
+│   │   ├── metadataCacheRepository.ts # Local library copy: tables and search
+│   │   └── metadataCache.ts        # Local library copy: refresh job, mirroring of changes + IPC
 │   │
 │   └── preload/
 │       └── contextBridge.ts        # Exposes window.api to renderer via contextBridge
 │
 ├── scripts/
 │   ├── ensureElectron.mjs          # postinstall: downloads fork binary if dist/ missing
-│   └── runElectron.mjs             # dev/start: spawns electron-vite, Linux-only Chromium flags
+│   ├── driveApp.mjs                # Dev helper: drives a running app over the DevTools Protocol
+│   ├── runElectron.mjs             # dev/start: spawns electron-vite, Linux-only Chromium flags
+│   └── packageApp.mjs              # package:*: fetches the target platform's Electron build, runs electron-builder
 │
 ├── resources/
-│   ├── icon.png                    # Placeholder (AppImage/deb) — replace when real branding exists
-│   ├── icon.ico                    # Placeholder (nsis installer)
-│   └── icon.icns
+│   ├── icon.png                    # App icon (AppImage/deb, 2000×2000)
+│   └── icon.ico                    # Built from icon.png: magick icon.png -define icon:auto-resize=256,128,64,48,32,24,16 icon.ico
 │
 └── src/                            # React renderer process
     ├── main.tsx
     ├── App.tsx                     # Router (react-router v8) + global error/session handling
     │
     ├── components/
-    │   ├── layout/                 # AppShell, Sidebar
-    │   ├── media/                  # MediaCard, HorizontalScroll (Home rows)
-    │   ├── player/                 # PlayerBar, QueuePanel
-    │   ├── tracks/                 # TrackList, TrackContextMenu (right-click menu)
+    │   ├── layout/                 # AppShell, Sidebar, SidebarPlaylists
+    │   ├── media/                  # MediaCard, MediaGrid, HorizontalScroll, ArtistCardLink, SortControl,
+    │   │                           #   ZoomableImage (click-to-enlarge artwork viewer), PlaylistEditDialog,
+    │   │                           #   AlbumCredits (an album's credits gathered from its tracks)
+    │   ├── player/                 # PlayerBar, QueuePanel, NowPlayingPanel (track details, synced lyrics)
+    │   ├── settings/               # One component per Settings section (sync, remote, cache, TIDAL app, app data)
+    │   ├── tracks/                 # TrackList, TrackContextMenu, AddToPlaylistsDialog, ArtistLinks
     │   └── ui/                     # shadcn/ui primitives
     │
-    ├── hooks/
-    │   ├── useMediaSession.ts      # OS media keys
-    │   ├── useLogout.ts            # Stops playback, then logs out
-    │   ├── useTrackCollection.ts   # Infinite query + background prefetch + full-collection playback
-    │   └── useTrackEnrichment.ts   # Batches getTracksByIds into songsStore
-    │
-    ├── lib/                        # Pure helpers (format, artwork URLs, media products, logger, random, mediaPlayback);
-    │                               #   `*.test.ts` files live next to the code they cover
-    │
+    ├── hooks/                      # useTrackCollection, useTrackEnrichment, useMediaActions,
+    │                               #   useTopPlayedTracks, useRemoteControlBridge, useAppliedTheme, ...
+    ├── lib/                        # Pure helpers (queue order, play counter, engine events, text search,
+    │                               #   library sort, preferences, theme...); `*.test.ts` next to the code
     ├── services/
-    │   ├── tidalCatalogService.ts  # Calls window.api.* (was invoke())
-    │   └── playbackService.ts      # TIDAL Web SDK — the only playback path
+    │   ├── tidalCatalogService.ts  # Calls window.api.* and wraps answers in Result
+    │   └── playbackService.ts      # Commands + events of the playback engine (IPC `player:*`)
     │
-    ├── store/
-    │   ├── playerStore.ts          # Volume 0-100 (converted to 0-1 for the SDK on set)
-    │   ├── queueStore.ts
-    │   ├── sessionStore.ts
-    │   ├── likedStore.ts           # Set of liked track ids (read-only for now)
-    │   └── songsStore.ts           # Enrichment cache for liked tracks (Map id → Track|null)
-    │
+    ├── store/                      # Zustand: playerStore, queueStore, sessionStore, likedStore, songsStore,
+    │                               #   preferencesStore, playlistDialogStore, cacheStore
     ├── types/
     │   ├── global.d.ts             # window.api type declaration (source of truth for IPC)
+    │   ├── player.ts               # Shared with the main process (engine, sync, remote, cache types)
     │   ├── auth.ts
-    │   ├── media.ts                # Home/detail media summaries (playlist, album, mix)
+    │   ├── media.ts
     │   └── track.ts
     │
-    └── views/
-        ├── LoginView.tsx
-        ├── HomeView.tsx            # Library overview: playlists, mixes, new releases
-        ├── SongsView.tsx           # Liked tracks with infinite scroll + full-library playback
-        ├── SearchView.tsx
-        ├── MediaDetailView.tsx     # Generic playlist/album/mix detail (TrackList + header)
-        └── SettingsView.tsx        # Full-length playback session controls
+    └── views/                      # Login, Home, Songs (liked), Search, Favorites, Library, Releases,
+                                    #   Artist, MediaDetail (playlist/album/mix), Settings
 ```
 
 ## Build & Test Runbook
@@ -396,12 +452,14 @@ npm test              # Vitest unit tests (pure logic only: lib, stores, catalog
 npm run build         # Build all processes (main + preload + renderer)
 npm run verify        # typecheck + lint + test + build — run before every commit
 
-npm run package:linux # Package Linux (.AppImage + .deb) — run ON the Linux machine
-npm run package:win   # Package Windows (.exe, nsis) — run ON a Windows machine
+npm run package:linux # Package Linux (.AppImage + .deb)
+npm run package:win   # Package Windows: nsis installer on Windows (or Linux with Wine); portable .zip from Linux without Wine
 ```
 
 Verification is `npm run verify`. Tests cover pure logic only; anything that needs the
-Electron runtime, the TIDAL SDK or DRM is verified manually with `npm run dev`. New pure
+Electron runtime, TIDAL or DRM is checked in the running app: start it with
+`node scripts/runElectron.mjs dev --remote-debugging-port=9222` and drive it with
+`scripts/driveApp.mjs` (or by hand). New pure
 logic (parsers, stores, helpers) ships with a `*.test.ts` next to it.
 
 ### Building on a fresh machine (the "clone + npm install + npm start" promise)
@@ -409,10 +467,10 @@ logic (parsers, stores, helpers) ships with a `*.test.ts` next to it.
 1. Node 22+ (`.nvmrc` pins 22). On Windows with nvm: `nvm install 22 && nvm use 22`.
 2. `npm install` — the `postinstall` downloads the Castlabs Electron binary for your OS
    from `github.com/castlabs/electron-releases`.
-3. `npm run dev` — opens the window. Electron-builder uses
-   `electronDist: node_modules/electron/dist` (see `electron-builder.yml`), so packaging
-   never touches the standard Electron releases; the local dist is single-platform, so
-   package on the matching OS.
+3. `npm run dev` — opens the window. Packaging goes through `scripts/packageApp.mjs`, which
+   downloads the Castlabs build of the **target** platform into
+   `node_modules/.cache/waves-electron/<platform>-<arch>` and points electron-builder at it, so
+   Windows can be packaged from Linux (as a portable zip; the nsis installer needs Wine or Windows).
 
 ### Linux launch runbook (do not remove these flags)
 
@@ -467,7 +525,7 @@ written to a file in `app.getPath('userData')` — useless without the OS user's
 ### Content Security Policy (production only)
 `electron.vite.config.ts` injects a CSP `<meta>` into the **built** `index.html` only (dev needs
 inline scripts for hot reload). Scripts/workers are limited to the app; `https:`/`wss:` stay open
-for `connect-src`/`img-src`/`media-src` because the TIDAL SDK talks to several TIDAL hosts. If
+for `connect-src`/`img-src`/`media-src` (artwork comes from TIDAL's CDN). If
 audio breaks only in `npm start`/packaged builds, check this policy first.
 
 ### Sign-in window must stay a plain Electron window
@@ -488,31 +546,98 @@ The v1 API (`api.tidal.com/v1`) rejects all dashboard-created clients with 403/1
 (`Required scopes: r_usr`) because it validates against legacy scope names. There is no
 dashboard setting that grants legacy scopes. Use v2 (`openapi.tidal.com/v2`) exclusively.
 
-### TIDAL Web SDK with custom credentials provider
-`@tidal-music/player` is the only permitted playback path. The custom `CredentialsProvider`
-calls `window.api.getSessionCredentials()` — the renderer never stores tokens.
-`@tidal-music/auth` is NOT used: it would duplicate auth state that the main process owns.
-`setEventSender({ sendEvent() {} })` is REQUIRED — the SDK's `hasEventSender()` guard blocks
-`load`/`setNext` otherwise, and the SDK only invokes `sendEvent()`.
+### Playback engine: TIDAL's web player in a hidden window (2026-11-15)
+The only playback path is TIDAL's own web player (`https://tidal.com/`) loaded as-is in a hidden
+`BrowserWindow` (`electron/main/tidalWebPlayer.ts`) on the `persist:tidal-web` partition, which it
+shares with the sign-in window so it is already signed in.
 
-### Playback session token priority
-Two credential sources exist; `buildCredentialsProvider().getCredentials()` branches: the
-**first-party web session** (web player at `tidal.com`, client `49YxDN9a2aFV6RTG`; the older `listen.tidal.com` client `CzET4vdadNUFQ5JU` is rejected by TIDAL since 2026-11) when connected, the
-**Dashboard app token** otherwise. Dashboard tokens only ever produce PREVIEW manifests
-(`assetPresentation` is decided server-side by token tier); the first-party web session
-produces `FULL`. The SDK requests credentials on every `load`, so connecting the session is
-enough — no re-initialization required.
+**Why not the SDK:** with the first-party web session `@tidal-music/player` gets FULL manifests,
+but TIDAL's audio CDN answers HTTP 403 (error 54113) to any origin other than `tidal.com`, and the
+app does not fake `Origin`/`Referer`. tidal-hifi works the same way (it wraps the web player).
 
-### Play count increment strategy (Phase 4)
-A play is counted only when a track plays past 30 seconds — matches industry convention and
-avoids inflating counts from skips. The threshold is stored in `user_preferences`. The
-first-party web session resolves full-track playback, so a play crossing 30 s is a genuine
-listen, not a preview cap.
+**How it is driven** (everything page-specific lives in `electron/main/tidalWebPlayerScript.ts`):
+the page is a React + Redux app; the injected script finds its Redux store through the React root
+and dispatches the page's own actions. Verified 2026-11-15:
+- `content/FETCH_AND_PLAY_MEDIA_ITEM` `{ itemId, itemType: "track", sourceContext }` replaces the
+  page's queue with one track and plays it (~0.4-1 s).
+- `content/LOAD_SINGLE_MEDIA_ITEM` + `playQueue/ADD_NEXT` (after `playQueue/CLEAR_UPCOMING`) queue
+  exactly one next track; the page then changes track by itself with no gap.
+  (`content/FETCH_AND_QUEUE_MEDIA_ITEM` also works but leaves a stray extra item — not used.)
+- `playbackControls/PLAY | PAUSE | SEEK (seconds) | SET_VOLUME ({ volume: 0-100 })`.
+- `settings/SET_AUTOPLAY false` is forced: with autoplay on, the page appends a 100-track radio
+  when its queue ends.
+- State is read by polling `playbackControls` (state, `mediaProduct`, `playbackContext`) every
+  500 ms. `latestCurrentTime` only syncs on events; the real position is that value plus the time
+  since `latestCurrentTimeSyncTimestamp`. `mediaProduct.referenceId` is unique per playback.
+- Right after it loads, the page restores the last track of its previous run; asked for that same
+  track it loads it but stays paused, so the script dispatches `PLAY` explicitly.
+- An unavailable track never reaches `content.mediaItems`; the page shows a notification instead.
 
-### Smart shuffle in the main process (Phase 4)
-The algorithm requires DB access and produces large arrays. Keeping it in Node.js avoids
-serializing large datasets across the IPC bridge and allows unit testing independently of
-the UI.
+**Division of work:** Waves owns the queue (`queueStore`). The web player only ever holds the
+current track and the one after it. `src/services/playbackService.ts` sends commands over the
+`player:*` IPC channels and turns the polled snapshots (`player:state` events) into
+transition / state / ended events (`src/lib/engineEvents.ts`, pure and unit-tested) for
+`playerStore`.
+
+**Do not** change the engine window's user agent or fingerprint (same reason as the sign-in
+window), and do not move playback back into the renderer. `WAVES_SHOW_ENGINE=1` shows the window
+for debugging. When playback breaks after a TIDAL web update, re-verify the action names above
+first (they can be listed by grepping the page's scripts for `"playQueue/…"` strings).
+
+The `@tidal-music/*` SDK packages were removed (2026-11-16), together with the IPC that handed
+tokens to the renderer for them.
+
+### Sessions and what each one is for
+Two sign-ins exist. The **Dashboard app token** (`auth.ts`, OAuth PKCE with the user's own client
+id) is used for the v2 API (catalog, collection, playlists). The **first-party web session**
+(`webSessionAuth.ts`, web client `49YxDN9a2aFV6RTG`; the older `listen.tidal.com` client
+`CzET4vdadNUFQ5JU` is rejected by TIDAL since 2026-11) signs the `persist:tidal-web` partition in,
+which is what lets the engine play FULL tracks. Without it nothing plays and the player shows
+"Full playback is not connected".
+
+### Play counts and smart shuffle
+A play is counted once the listened time of a track passes the threshold (30 s by default,
+adjustable in Settings; `src/lib/playCounter.ts`). Smart shuffle (`electron/main/smartShuffle.ts`,
+on by default; Settings can switch to plain random) orders the queue by
+`play_count + baseline_count` ascending, shuffled inside each level. `baseline_count` keeps new
+tracks from monopolising the queue: when a list is first seen, its unknown tracks get the median
+of the known ones (only if the known ones are at least as many as the new ones, otherwise 0); a
+track first seen by a play gets the library median.
+
+### Queue, shuffle and repeat
+Waves owns the queue (`queueStore`, `src/lib/queueOrder.ts`): play order plus original order, so
+shuffle can be undone. Repeat modes: `off | one-once | one | all` (`one-once` turns itself off
+after its extra play). Volume, shuffle, repeat and the queue are restored on start.
+The queue's `PlaybackSource` carries a title and a route, shown as "Playing from …" in the player
+bar and the queue panel. Queue rows reorder by drag and drop (native HTML5 drag events) and have a
+right-click menu (Play, Place next in queue, Remove). In track lists only the ▶ button of a row
+(or Play in its menu) starts playback; clicking the row does nothing.
+
+### Turso sync (play counts only)
+`tursoSync.ts` + pure rules in `playSync.ts`: full sync at start in the background and a push of
+every counted play; per track the higher count and the later date win; failed pushes stay pending
+and go out with the next sync. Without a database set (Settings, or `TURSO_*` in `.env`) it is off
+and everything stays local.
+
+### Phone remote
+`remoteControl.ts` serves one self-contained page and a WebSocket on the local network, off until
+enabled in Settings. The pairing token travels in the URL shown as a QR code; every request
+without it is refused, and "Make a new code" invalidates paired phones. Commands are validated in
+`remoteProtocol.ts` and executed by the renderer (`useRemoteControlBridge`), which also publishes
+the state. The firewall may need the port opened.
+
+### Local library copy (optional)
+Off by default (Settings → "Local library copy"). When on, `metadataCache.ts` copies the liked
+songs and every playlist at each start (and on demand) into the `cached_*` tables. Then the liked
+list and playlists are served from it (`setLibraryHooks` in `catalog.ts`), "My collection" search
+covers liked songs + playlists with play counts and playlist membership, and the add-to-playlists
+dialog marks playlists that already hold the track. Changes made through the app are mirrored;
+changes made in other TIDAL apps appear after the next refresh. With it off, collection search
+covers the liked songs only. Only reference data is stored — never streams or licences.
+
+### Favorites
+`/favorites` is a virtual list: top N tracks by play count among those heard in the last X days
+(50 / 30 by default, adjustable). Nothing is written to TIDAL.
 
 ### No separate backend server
 Single-user personal app. The Electron main process replaces the backend entirely — it has
@@ -520,7 +645,7 @@ full OS access, HTTP, SQLite, WebSocket, and secure storage. No server to run or
 
 ### SQLite + Turso
 SQLite is zero-config, co-located with the app. Turso provides the same SQLite dialect in
-the cloud, making sync trivially simple. No ORM — raw SQL preferred for clarity and control.
+the cloud. No ORM — raw SQL preferred for clarity and control.
 
 ### Zustand + TanStack Query
 Zustand for client state (player, queue, session): flat, synchronous, minimal boilerplate.
@@ -528,9 +653,11 @@ TanStack Query for server state (catalog): caching, deduplication, background re
 the box.
 
 ### React Router v8
-Declarative mode, flat route tree. Current routes: `/` (Home), `/songs` (liked tracks),
-`/search`, `/settings`, `/albums/:albumId`, `/playlists/:playlistId`,
-`/mixes/:mixType/:mixId`. `/remote` (mobile remote) is Phase 6.
+Declarative mode, flat route tree, **hash routes** (`HashRouter`): the packaged app is a `file://`
+page, where a path-based URL points at the disk on reload and carries a drive letter on Windows. Current routes: `/` (Home), `/songs` (liked tracks),
+`/search`, `/favorites`, `/library`, `/releases`, `/artists/:artistId`, `/settings`,
+`/albums/:albumId`, `/playlists/:playlistId`, `/mixes/:mixType/:mixId`. The phone remote is not a
+route: it is a separate page served by the main process.
 
 ## Code Conventions
 
@@ -577,8 +704,8 @@ type Result<T> = { success: true; data: T } | { success: false; error: string }
   30-second previews. Full tracks require Authorization Code OAuth with the user's own
   account; the Dashboard app token only authorizes PREVIEW manifests server-side. Full
   playback comes from the first-party web session (`webSessionAuth.ts`).
-- **Use the TIDAL Web SDK for playback.** Streaming directly from TIDAL's CDN violates terms.
-  The SDK handles DRM, stream URLs, and license acquisition.
+- **Playback goes through TIDAL's web player** (hidden window, see "Playback engine"). Never
+  fetch audio from TIDAL's CDN directly and never fake the request origin.
 - **Personal use only.** Must not be distributed or made accessible to other users.
 - **Widevine on Linux is L3 (software DRM).** For audio this imposes no quality restriction —
   Max quality (HiRes FLAC 24-bit/192kHz) is available. L3 restrictions apply to video

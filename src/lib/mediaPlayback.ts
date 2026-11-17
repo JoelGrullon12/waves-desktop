@@ -1,4 +1,3 @@
-import { shuffleCopy } from "@/lib/random";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
 import { usePlayerStore } from "@/store/playerStore";
 import type { PlaybackSource } from "@/store/queueStore";
@@ -46,15 +45,27 @@ export async function loadTracksForMedia(media: MediaSummary): Promise<Track[]> 
   );
 }
 
-// Replaces the current queue with ONLY this media's tracks (shuffled when
-// requested) and starts playback — matching the "play this, discard the rest"
+// Route of the detail view of an album, playlist or mix.
+export function mediaPath(media: Pick<MediaSummary, "id" | "type" | "mixType">): string | null {
+  if (media.type === "album") return `/albums/${media.id}`;
+  if (media.type === "playlist") return `/playlists/${media.id}`;
+  if (media.type === "mix" && media.mixType) return `/mixes/${media.mixType}/${media.id}`;
+  return null;
+}
+
+// Replaces the current queue with ONLY this media's tracks (turning shuffle on
+// when requested) and starts playback — matching the "play this, discard the rest"
 // contract of the Home cards and the detail view.
 export async function playMedia(media: MediaSummary, shuffle: boolean): Promise<void> {
   const tracks = await loadTracksForMedia(media);
   if (tracks.length === 0) {
     throw new Error("This item has no streamable tracks.");
   }
-  const source: PlaybackSource = { sourceType: media.type, sourceId: media.id };
-  const queue = shuffle ? shuffleCopy(tracks) : tracks;
-  await usePlayerStore.getState().playQueue(queue, 0, source);
+  const source: PlaybackSource = {
+    sourceType: media.type,
+    sourceId: media.id,
+    sourceTitle: media.title,
+    sourcePath: mediaPath(media),
+  };
+  await usePlayerStore.getState().playQueue(tracks, 0, source, { shuffle });
 }

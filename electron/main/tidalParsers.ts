@@ -39,17 +39,20 @@ export interface ResourceIdentifier {
 
 export interface RelationshipDocument {
   data: ResourceIdentifier[];
-  included: ResourceObject[];
+  // Absent when the request asked for no related resources or none exist.
+  included?: ResourceObject[];
 }
 
 export interface SingleResourceDocument {
   data: ResourceObject;
-  included: ResourceObject[];
+  // Absent when the request asked for no related resources or none exist.
+  included?: ResourceObject[];
 }
 
 export interface MultiResourceDocument {
   data: ResourceObject[];
-  included: ResourceObject[];
+  // Absent when the request asked for no related resources or none exist.
+  included?: ResourceObject[];
 }
 
 export function isResourceObject(value: unknown): value is ResourceObject {
@@ -60,9 +63,11 @@ export function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
-export function indexResources(resources: ResourceObject[]): Map<string, ResourceObject> {
+export function indexResources(
+  resources: ResourceObject[] | undefined,
+): Map<string, ResourceObject> {
   const byId = new Map<string, ResourceObject>();
-  for (const resource of resources) byId.set(resource.id, resource);
+  for (const resource of resources ?? []) byId.set(resource.id, resource);
   return byId;
 }
 
@@ -271,4 +276,70 @@ export function tracksFromTracksDocument(document: MultiResourceDocument): Track
   return document.data
     .filter((resource) => resource["type"] === "tracks")
     .map((resource) => trackFromV2Resource(resource, byId, null, null));
+}
+
+// --- Lyrics and credits (see trackDetails.ts) ----------------------------------
+
+export interface TrackLyrics {
+  text: string | null;
+  lrcText: string | null;
+  provider: string | null;
+  isRightToLeft: boolean;
+}
+
+export interface TrackCredit {
+  name: string;
+  role: string;
+  category: string | null;
+  artistId: string | null;
+}
+
+function relationshipDataId(resource: ResourceObject, relationship: string): string | null {
+  const data = asRecord(asRecord(resource["relationships"])[relationship])["data"];
+  return isResourceObject(data) && typeof data.id === "string" ? data.id : null;
+}
+
+// `/tracks/{id}/relationships/lyrics?include=lyrics`. Lyrics TIDAL is still
+// preparing (technicalStatus other than OK) count as none.
+export function lyricsFromDocument(document: RelationshipDocument): TrackLyrics | null {
+  const byId = indexResources(document.included);
+  for (const identifier of document.data ?? []) {
+    const resource = byId.get(identifier.id);
+    if (!resource || resource["type"] !== "lyrics") continue;
+    if (attributeString(resource, "technicalStatus") !== "OK") continue;
+    const text = attributeString(resource, "text")?.trim() || null;
+    const lrcText = attributeString(resource, "lrcText")?.trim() || null;
+    if (!text && !lrcText) continue;
+    const provider = asRecord(asRecord(resource["attributes"])["provider"]);
+    return {
+      text,
+      lrcText,
+      provider: typeof provider["name"] === "string" ? provider["name"] : null,
+      isRightToLeft: attributeString(resource, "direction") === "RIGHT_TO_LEFT",
+    };
+  }
+  return null;
+}
+
+// `/tracks/{id}/relationships/credits?include=credits,credits.category`, in
+// the order TIDAL lists them.
+export function creditsFromDocument(document: RelationshipDocument): TrackCredit[] {
+  const byId = indexResources(document.included);
+  const credits: TrackCredit[] = [];
+  for (const identifier of document.data ?? []) {
+    const resource = byId.get(identifier.id);
+    if (!resource || resource["type"] !== "credits") continue;
+    const name = attributeString(resource, "name")?.trim();
+    const role = attributeString(resource, "role")?.trim();
+    if (!name || !role) continue;
+    const categoryId = relationshipDataId(resource, "category");
+    const category = categoryId ? byId.get(categoryId) : undefined;
+    credits.push({
+      name,
+      role,
+      category: category && category["type"] === "artistRoles" ? attributeString(category, "name") : null,
+      artistId: relationshipDataId(resource, "artist"),
+    });
+  }
+  return credits;
 }

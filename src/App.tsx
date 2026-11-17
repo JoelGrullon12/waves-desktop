@@ -1,13 +1,18 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { HashRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/AppShell";
+import { useAppliedTheme } from "@/hooks/useAppliedTheme";
 import { errorMessage, logToTerminal } from "@/lib/logger";
 import { usePlayerStore } from "@/store/playerStore";
 import { useSessionStore } from "@/store/sessionStore";
+import { FavoritesView } from "@/views/FavoritesView";
 import { HomeView } from "@/views/HomeView";
 import { LoginView } from "@/views/LoginView";
 import { MediaDetailView } from "@/views/MediaDetailView";
+import { ArtistView } from "@/views/ArtistView";
+import { LibraryView } from "@/views/LibraryView";
+import { ReleasesView } from "@/views/ReleasesView";
 import { SearchView } from "@/views/SearchView";
 import { SettingsView } from "@/views/SettingsView";
 import { SongsView } from "@/views/SongsView";
@@ -17,28 +22,27 @@ import "./App.css";
 
 function App() {
   const { is_authenticated, isLoading, init } = useSessionStore();
+  useAppliedTheme();
 
   useEffect(() => {
     void init();
   }, [init]);
 
-  // The TIDAL Web SDK rejects asynchronously on breakpoints that do NOT fire
-  // its "error" event (e.g. DRM key system unsupported on WebKitGTK). Surface
-  // every uncaught async failure in the player banner so playback issues are
+  // Surface every uncaught async failure in the player banner so problems are
   // visible instead of silent.
   useEffect(() => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
       if (isPlayInterruption(event.reason)) return;
       const message = errorMessage(event.reason);
       logToTerminal("error", `unhandled rejection: ${message}`);
-      usePlayerStore.setState({ error: `Playback error: ${message}`, isPlaying: false });
+      usePlayerStore.setState({ error: message });
     };
     const onErrorEvent = (event: ErrorEvent) => {
       // Resource-load errors (e.g. a broken artwork <img>) carry no script
       // filename; real uncaught script errors do. Ignore the first kind.
       if (!event.filename) return;
       logToTerminal("error", `uncaught error: ${event.message} @ ${event.filename}`);
-      usePlayerStore.setState({ error: `Playback error: ${event.message}`, isPlaying: false });
+      usePlayerStore.setState({ error: event.message });
     };
     window.addEventListener("unhandledrejection", onUnhandledRejection);
     window.addEventListener("error", onErrorEvent);
@@ -70,12 +74,18 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      {/* Hash routes: the packaged app is a file:// page, where a path-based URL
+          would point at the disk on reload (and carries a drive letter on Windows). */}
+      <HashRouter>
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<HomeView />} />
             <Route path="songs" element={<SongsView />} />
             <Route path="search" element={<SearchView />} />
+            <Route path="favorites" element={<FavoritesView />} />
+            <Route path="library" element={<LibraryView />} />
+            <Route path="releases" element={<ReleasesView />} />
+            <Route path="artists/:artistId" element={<ArtistView />} />
             <Route path="settings" element={<SettingsView />} />
             <Route
               path="albums/:albumId"
@@ -98,7 +108,7 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </QueryClientProvider>
   );
 }

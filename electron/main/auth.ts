@@ -1,4 +1,5 @@
 import { app, safeStorage, shell } from "electron";
+import { forgetAccountCountry } from "./tidalApiClient";
 import { createHash, randomBytes, createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
@@ -261,6 +262,7 @@ async function login(): Promise<TokenBundle> {
 }
 
 async function logout(): Promise<void> {
+  forgetAccountCountry();
   const filePath = tokenBundleFilePath();
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -278,21 +280,6 @@ export function registerAuthHandlers(): void {
   handleTrusted("auth:is-authenticated", async () => {
     const tokenBundle = await getValidAccessToken();
     return Boolean(tokenBundle);
-  });
-
-  handleTrusted("auth:get-session-credentials", async () => {
-    const accessToken = await getValidAccessToken();
-    if (!accessToken) return null;
-    return {
-      access_token: accessToken,
-      client_id: getTidalAppCredentials().clientId,
-      user_id: loadTokenBundle()?.userId ?? null,
-    };
-  });
-
-  handleTrusted("auth:get-access-token", async () => {
-    const tokenBundle = await getValidAccessToken();
-    return tokenBundle ?? null;
   });
 
   handleTrusted("auth:logout", async () => {

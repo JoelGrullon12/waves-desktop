@@ -1,5 +1,7 @@
 import { Heart, Pause, Play } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
+import { Link } from "react-router";
+import { ArtistLinks } from "@/components/tracks/ArtistLinks";
 import { TrackContextMenu } from "@/components/tracks/TrackContextMenu";
 import { formatDuration } from "@/lib/format";
 import { artworkUrl } from "@/lib/tidalImage";
@@ -16,10 +18,12 @@ interface TrackListProps {
   // from the FULL list, at the clicked track's real position. `tracks` stays the
   // visible window; `queueTracks` is what playQueue receives.
   queueTracks?: Track[];
-  // The like hearts are only hidden in the liked-songs list; every other view
-  // renders them (currently decorative until like/unlike becomes functional).
+  // The hearts are hidden in the liked-songs list, where every row is liked.
   showLikeButton?: boolean;
-  allowRemoveFromLibrary?: boolean;
+  // Extra text per track shown after the artists (play count, playlists...).
+  detailByTrackId?: ReadonlyMap<string, string>;
+  // An extra column after the album (the playlists of a search result).
+  extraColumnByTrackId?: ReadonlyMap<string, ReactNode>;
 }
 
 interface TrackRowProps {
@@ -29,7 +33,9 @@ interface TrackRowProps {
   queueTracks?: Track[];
   source: PlaybackSource;
   showLikeButton: boolean;
-  allowRemoveFromLibrary: boolean;
+  detail?: string;
+  hasExtraColumn: boolean;
+  extraColumn?: ReactNode;
 }
 
 function TrackRow({
@@ -39,20 +45,28 @@ function TrackRow({
   queueTracks,
   source,
   showLikeButton,
-  allowRemoveFromLibrary,
+  detail,
+  hasExtraColumn,
+  extraColumn,
 }: TrackRowProps) {
   const playQueue = usePlayerStore((state) => state.playQueue);
   const isCurrent = usePlayerStore((state) => state.currentTrack?.id === track.id);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const currentQueueId = useQueueStore((state) => state.source?.sourceId);
   const isLiked = useIsLiked(track.id);
+  const setLiked = useLikedStore((state) => state.setLiked);
+  const showNotice = usePlayerStore((state) => state.showNotice);
 
   const isPlayingThisTrack = isCurrent && isPlaying && currentQueueId === source.sourceId;
   const artwork = track.album?.cover ? artworkUrl(track.album.cover, 96) : undefined;
 
-  const gridColumns = showLikeButton
-    ? "grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.6fr)_3rem_2.25rem]"
-    : "grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.6fr)_3rem]";
+  const gridColumns = hasExtraColumn
+    ? showLikeButton
+      ? "grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_3rem_2.25rem]"
+      : "grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_3rem]"
+    : showLikeButton
+      ? "grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.6fr)_3rem_2.25rem]"
+      : "grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.6fr)_3rem]";
 
   // Target the full list for the queue; if a window is provided, resolve the
   // clicked track's real index inside it (by id, so the visible order stands).
@@ -64,24 +78,44 @@ function TrackRow({
     void playQueue(queue, startIndex, source);
   };
 
+  const toggleLiked = async () => {
+    const result = await setLiked(track, !isLiked);
+    if (!result.success) showNotice(`Could not update your library: ${result.error}`);
+  };
+
   return (
-    <TrackContextMenu track={track} allowRemoveFromLibrary={allowRemoveFromLibrary}>
+    <TrackContextMenu track={track} onPlay={playFromRow}>
       <div
-        className={`group grid ${gridColumns} cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted`}
-        onClick={playFromRow}
+        className={`group grid ${gridColumns} items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted`}
+        data-track-id={track.id}
       >
-        <div className="flex items-center justify-center text-xs tabular-nums text-muted-foreground">
-          {isPlayingThisTrack ? (
-            <Pause className="size-3.5 text-primary" aria-hidden />
-          ) : isCurrent ? (
-            <span className="size-3.5 flex items-center justify-center">
-              <span className="size-1.5 rounded-full bg-primary" />
-            </span>
-          ) : (
-            <span className="group-hover:hidden">{index + 1}</span>
-          )}
-          <Play className="hidden size-3.5 text-foreground group-hover:block" aria-hidden />
-        </div>
+        {/* Only this button (and Play in the right-click menu) starts playback:
+            clicking the row itself does nothing, so a stray click never
+            replaces the queue. */}
+        <button
+          type="button"
+          aria-label={`Play ${track.title}`}
+          title={`Play ${track.title}`}
+          data-testid="track-play"
+          className="flex h-7 items-center justify-center rounded-md text-xs tabular-nums text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={playFromRow}
+        >
+          <span className="contents group-hover:hidden group-focus-within:hidden">
+            {isPlayingThisTrack ? (
+              <Pause className="size-3.5 text-primary" aria-hidden />
+            ) : isCurrent ? (
+              <span className="flex size-3.5 items-center justify-center">
+                <span className="size-1.5 rounded-full bg-primary" />
+              </span>
+            ) : (
+              <span>{index + 1}</span>
+            )}
+          </span>
+          <Play
+            className="hidden size-4 fill-current text-foreground group-hover:block group-focus-within:block"
+            aria-hidden
+          />
+        </button>
 
         <div className="flex min-w-0 items-center gap-3">
           {artwork ? (
@@ -101,31 +135,49 @@ function TrackRow({
               {track.title}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {track.artists.map((artist) => artist.name).join(", ")}
+              <ArtistLinks artists={track.artists} />
+              {detail && <span data-testid="track-detail"> · {detail}</span>}
             </p>
           </div>
         </div>
 
-        <p className="truncate text-xs text-muted-foreground">{track.album?.title}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {track.album?.id ? (
+            <Link
+              to={`/albums/${track.album.id}`}
+              className="hover:text-foreground hover:underline"
+            >
+              {track.album.title}
+            </Link>
+          ) : (
+            track.album?.title
+          )}
+        </p>
+
+        {hasExtraColumn && <div className="min-w-0">{extraColumn}</div>}
 
         <p className="text-right text-xs tabular-nums text-muted-foreground">
           {formatDuration(track.duration)}
         </p>
 
         {showLikeButton && (
-          <div
-            className="pointer-events-none flex items-center justify-center"
-            title={isLiked ? "Liked" : "Like"}
-            aria-hidden
+          <button
+            type="button"
+            className="flex items-center justify-center rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title={isLiked ? "Remove from library" : "Add to library"}
+            aria-label={isLiked ? "Remove from library" : "Add to library"}
+            aria-pressed={isLiked}
+            onClick={() => void toggleLiked()}
           >
             <Heart
               className={`size-4 transition-colors ${
                 isLiked
                   ? "fill-current text-primary"
-                  : "text-muted-foreground group-hover:text-primary"
+                  : "text-muted-foreground hover:text-primary"
               }`}
+              aria-hidden
             />
-          </div>
+          </button>
         )}
       </div>
     </TrackContextMenu>
@@ -137,17 +189,18 @@ export function TrackList({
   source,
   queueTracks,
   showLikeButton = true,
-  allowRemoveFromLibrary = false,
+  detailByTrackId,
+  extraColumnByTrackId,
 }: TrackListProps) {
   const loadLikedIds = useLikedStore((state) => state.load);
 
-  // Kick off the background likes walk once, only when hearts are rendered.
+  // Kick off the background likes walk once: the hearts and the context menu
+  // both need to know which tracks are liked.
   useEffect(() => {
-    if (!showLikeButton) return;
     void loadLikedIds().catch(() => {
-      // A failed walk leaves the hearts as unliked; a later mount retries.
+      // A failed walk leaves the tracks as unliked; a later mount retries.
     });
-  }, [showLikeButton, loadLikedIds]);
+  }, [loadLikedIds]);
 
   if (tracks.length === 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">No tracks found.</p>;
@@ -164,7 +217,9 @@ export function TrackList({
           queueTracks={queueTracks}
           source={source}
           showLikeButton={showLikeButton}
-          allowRemoveFromLibrary={allowRemoveFromLibrary}
+          detail={detailByTrackId?.get(track.id)}
+          hasExtraColumn={extraColumnByTrackId !== undefined}
+          extraColumn={extraColumnByTrackId?.get(track.id)}
         />
       ))}
     </div>
