@@ -145,6 +145,8 @@ truth (do not duplicate it into docs). Channel families:
 - `auth:*` — Dashboard app session (login, logout, is-authenticated). No handler returns a token.
 - `web-auth:*` — first-party web session used by the playback engine (login, logout, is-connected)
 - `catalog:get-lyrics` / `catalog:get-track-credits` — lyrics and credits (web session, see below)
+- `library:update-playlist` / `library:*-playlist-cover*` — edit a playlist the user owns (the image
+  is picked in a native dialog in the main process)
 - `catalog:*` / `library:*` — TIDAL v2 reads (search, albums, playlists, mixes, artists, liked
   tracks, releases feed, collection albums/artists) and writes (like/unlike, add to playlist,
   create/delete playlist)
@@ -250,7 +252,8 @@ The redirect URI is hardcoded in `electron/main/auth.ts`.
 Debug-only variables: `WAVES_SHOW_ENGINE=1` (show the engine window), `WAVES_DEBUG_API=1`
 (enable `debug:api-get`), `WAVES_SYNC_TABLE` (Turso table name, to test sync against a
 throwaway table), `WAVES_USER_DATA_DIRECTORY` (absolute path used as `userData`, to run checks
-against a copy of the profile instead of the real one).
+against a copy of the profile instead of the real one), `WAVES_DEBUG_COVER_FILE` (with
+`WAVES_DEBUG_API=1`: the image the cover upload uses instead of opening the file dialog).
 
 ## TIDAL OAuth Redirect URI
 
@@ -285,6 +288,12 @@ log out and log in once to re-mint.
 - `GET /tracks?filter[id]=...` accepts at most **20** ids per request (HTTP 400 above that,
   verified 2026-11-16; it used to accept 50). `getTracksByIds` chunks accordingly.
 - Playlist folders can not be read with the v2 API (404). A new playlist takes 1-2 s to be listed.
+- **Editing a playlist** (`playlistEditing.ts`): `PATCH /playlists/{id}` with `name` (≤ 250, the
+  app keeps 100) and `description` (≤ 500) works with the app token. **Covers do not**: `POST
+  /artworks` (needed to upload an image) answers 403 "Access tier is insufficient", and
+  `/playlists/{id}/relationships/suggestedCoverArts` is always empty (verified 2026-11-16). The
+  editor still tries and explains the refusal; do not route these writes through the web session
+  to get around the developer app's access tier.
 - Album tracks: `GET /albums/{id}/relationships/items?include=items.albums,items.artists`.
 - Playlist tracks: `GET /playlists/{id}/relationships/items?include=items.albums,items.artists`.
 - Album items have `trackNumber` and `volumeNumber` in their `meta` object.
@@ -372,6 +381,7 @@ waves-desktop/
 │   │   ├── remoteControlPage.ts    # The self-contained page a phone opens
 │   │   ├── remoteProtocol.ts       # Pure validation of remote commands/state and of the token
 │   │   ├── trackDetails.ts         # Lyrics and credits of a track (web session) + IPC
+│   │   ├── playlistEditing.ts      # Name, description and cover of a user's playlist + IPC
 │   │   ├── metadataCacheRepository.ts # Local library copy: tables and search
 │   │   └── metadataCache.ts        # Local library copy: refresh job, mirroring of changes + IPC
 │   │
@@ -395,7 +405,8 @@ waves-desktop/
     ├── components/
     │   ├── layout/                 # AppShell, Sidebar, SidebarPlaylists
     │   ├── media/                  # MediaCard, MediaGrid, HorizontalScroll, ArtistCardLink, SortControl,
-    │   │                           #   ZoomableImage (click-to-enlarge artwork viewer)
+    │   │                           #   ZoomableImage (click-to-enlarge artwork viewer), PlaylistEditDialog,
+    │   │                           #   AlbumCredits (an album's credits gathered from its tracks)
     │   ├── player/                 # PlayerBar, QueuePanel, NowPlayingPanel (track details, synced lyrics)
     │   ├── settings/               # One component per Settings section (sync, remote, cache, TIDAL app, app data)
     │   ├── tracks/                 # TrackList, TrackContextMenu, AddToPlaylistsDialog, ArtistLinks

@@ -90,6 +90,12 @@ export class MetadataCacheRepository {
     this.inTransaction(() => this.deleteCollection(collectionId));
   }
 
+  renameCollection(collectionId: string, title: string): void {
+    this.databaseConnection
+      .prepare("UPDATE cached_collections SET title = ? WHERE collection_id = ?")
+      .run(title, collectionId);
+  }
+
   // null when the collection was never cached (so the caller asks TIDAL).
   collectionTracks(collectionId: string): Track[] | null {
     const exists = this.databaseConnection

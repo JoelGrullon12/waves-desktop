@@ -63,6 +63,14 @@ contextBridge.exposeInMainWorld("api", {
   createPlaylist: (name: string) => ipcRenderer.invoke("catalog:create-playlist", name),
   deletePlaylist: (playlistId: string) => ipcRenderer.invoke("catalog:delete-playlist", playlistId),
 
+  updatePlaylist: (playlistId: string, name: string, description: string) =>
+    ipcRenderer.invoke("library:update-playlist", playlistId, name, description),
+  getSuggestedPlaylistCovers: (playlistId: string) =>
+    ipcRenderer.invoke("library:get-suggested-playlist-covers", playlistId),
+  setPlaylistCover: (playlistId: string, artworkId: string) =>
+    ipcRenderer.invoke("library:set-playlist-cover", playlistId, artworkId),
+  uploadPlaylistCover: (playlistId: string) => ipcRenderer.invoke("library:upload-playlist-cover", playlistId),
+
   getTrackLyrics: (trackId: string) => ipcRenderer.invoke("catalog:get-lyrics", trackId),
   getTrackCredits: (trackId: string) => ipcRenderer.invoke("catalog:get-track-credits", trackId),
 

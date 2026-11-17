@@ -59,6 +59,12 @@ describe("MetadataCacheRepository", () => {
     );
   });
 
+  it("renames a cached playlist", () => {
+    cache.replaceCollection("p1", "playlist", "Old name", [track("a", "Alpha")]);
+    cache.renameCollection("p1", "New name");
+    expect(cache.playlistsContaining(["a"])).toEqual(new Map([["a", [{ id: "p1", title: "New name" }]]]));
+  });
+
   it("searches likes and playlists, liked first, ignoring accents and word order", () => {
     cache.replaceCollection(LIKED_COLLECTION_ID, "liked", "Liked", [track("l", "Canción del mar", "Niña")]);
     cache.replaceCollection("p1", "playlist", "Road", [track("p", "Mar adentro", "Otro"), track("z", "Zzz")]);

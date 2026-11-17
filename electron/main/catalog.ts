@@ -743,6 +743,7 @@ export type LibraryChange =
   | { type: "likes-removed"; trackIds: string[] }
   | { type: "playlist-tracks-added"; playlistId: string; trackIds: string[] }
   | { type: "playlist-created"; playlistId: string; title: string }
+  | { type: "playlist-renamed"; playlistId: string; title: string }
   | { type: "playlist-deleted"; playlistId: string };
 
 export interface LibraryHooks {
@@ -755,6 +756,11 @@ let libraryHooks: LibraryHooks | null = null;
 
 export function setLibraryHooks(hooks: LibraryHooks): void {
   libraryHooks = hooks;
+}
+
+// For writes made outside this module (playlistEditing.ts).
+export function reportLibraryChange(change: LibraryChange): void {
+  libraryHooks?.onChange(change);
 }
 
 // The first page of a cached list is the whole list.

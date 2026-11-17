@@ -13,6 +13,7 @@ import {
   requireSearchQuery,
   parseTursoConfig,
   requireNetworkPort,
+  requirePlaylistDescription,
   resolveTidalAppCredentials,
   resolveTursoConfig,
 } from "./validation";
@@ -233,5 +234,17 @@ describe("requireNetworkPort", () => {
 
   it.each([80, 1023, 65536, 4000.5, "47836", null])("rejects %j", (port) => {
     expect(() => requireNetworkPort(port)).toThrow(/port/);
+  });
+});
+
+describe("requirePlaylistDescription", () => {
+  it("trims and allows an empty description", () => {
+    expect(requirePlaylistDescription("  Songs for the road \n")).toBe("Songs for the road");
+    expect(requirePlaylistDescription("")).toBe("");
+  });
+
+  it("rejects long or non-text values", () => {
+    expect(() => requirePlaylistDescription("x".repeat(501))).toThrow(/description/);
+    expect(() => requirePlaylistDescription(null)).toThrow(/description/);
   });
 });

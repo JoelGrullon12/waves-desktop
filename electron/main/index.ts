@@ -20,6 +20,7 @@ import {
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
 import { registerTrackDetailsHandlers } from "./trackDetails";
+import { registerPlaylistEditingHandlers } from "./playlistEditing";
 import {
   PLAYER_MEDIA_KEY_CHANNEL,
   PLAYER_STATE_CHANNEL,
@@ -222,6 +223,7 @@ app.whenReady().then(async () => {
   registerAuthHandlers();
   registerCatalogHandlers();
   registerTrackDetailsHandlers();
+  registerPlaylistEditingHandlers();
   registerLibraryHandlers();
   registerWebSessionHandlers();
   registerPlayerHandlers();

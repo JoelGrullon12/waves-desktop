@@ -1,4 +1,4 @@
-import type { ArtistSummary } from "@/types/track";
+import type { ArtistSummary } from "./track";
 
 export type MediaType = "playlist" | "album" | "mix";
 
@@ -90,3 +90,11 @@ export interface SearchResults {
   artists: ArtistCard[];
   playlists: PlaylistSummary[];
 }
+
+// A cover TIDAL suggests for a playlist.
+export interface PlaylistCoverChoice {
+  artworkId: string;
+  imageUrl: string;
+}
+
+export type PlaylistEditResult = { success: true } | { success: false; error: string };

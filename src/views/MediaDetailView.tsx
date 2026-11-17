@@ -1,7 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Music, Play, Search, Shuffle, Trash2, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2, Music, Pencil, Play, Search, Shuffle, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { useLocation, useParams } from "react-router";
+import { AlbumCredits } from "@/components/media/AlbumCredits";
+import { PlaylistEditDialog } from "@/components/media/PlaylistEditDialog";
 import { ZoomableImage } from "@/components/media/ZoomableImage";
 import { TrackList } from "@/components/tracks/TrackList";
 import { Button } from "@/components/ui/button";
@@ -16,7 +18,6 @@ import type {
   MediaType,
   MixSummary,
   PlaylistDetail,
-  PlaylistSummary,
 } from "@/types/media";
 
 interface MediaDetailViewProps {
@@ -134,36 +135,11 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
     };
   }, [metadataQuery.data, type]);
 
-  // Deleting asks twice: the first click arms the button, the second deletes.
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [deleteState, setDeleteState] = useState<"idle" | "armed" | "deleting">("idle");
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  useEffect(() => {
-    setDeleteState("idle");
-    setDeleteError(null);
-  }, [id]);
-  const isOwnPlaylist =
-    type === "playlist" && (metadataQuery.data as PlaylistDetail | undefined)?.playlistType === "USER";
-
-  const deletePlaylist = async () => {
-    if (!id) return;
-    if (deleteState === "idle") {
-      setDeleteState("armed");
-      return;
-    }
-    setDeleteState("deleting");
-    const result = await tidalCatalogService.deletePlaylist(id);
-    if (!result.success) {
-      setDeleteState("idle");
-      setDeleteError(result.error);
-      return;
-    }
-    queryClient.setQueryData<PlaylistSummary[]>(["user-playlists"], (current) =>
-      current?.filter((playlist) => playlist.id !== id),
-    );
-    void navigate("/library");
-  };
+  // Only playlists the user made can be edited (and deleted, from the editor).
+  const [isEditing, setIsEditing] = useState(false);
+  useEffect(() => setIsEditing(false), [id]);
+  const playlistDetail = type === "playlist" ? (metadataQuery.data as PlaylistDetail | undefined) : undefined;
+  const isOwnPlaylist = playlistDetail?.playlistType === "USER";
 
   // Search inside this list. It covers the tracks loaded so far (all of them
   // once the background walk ends) and playing a match queues the matches.
@@ -196,7 +172,21 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {header?.kind ?? (metadataQuery.isLoading ? "Loading…" : "Not found")}
           </p>
-          <h1 className="truncate text-2xl font-bold">{header?.title ?? "—"}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-2xl font-bold">{header?.title ?? "—"}</h1>
+            {isOwnPlaylist && (
+              <button
+                type="button"
+                title="Edit playlist"
+                aria-label="Edit playlist"
+                data-testid="edit-playlist"
+                onClick={() => setIsEditing(true)}
+                className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="size-4" aria-hidden />
+              </button>
+            )}
+          </div>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">{header?.subtitle ?? ""}</p>
           {header?.description && (
             <p
@@ -228,29 +218,12 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
               )}
               {collection.isPreparing ? "Loading…" : "Shuffle"}
             </Button>
-            {isOwnPlaylist && (
-              <Button
-                variant={deleteState === "idle" ? "ghost" : "destructive"}
-                onClick={() => void deletePlaylist()}
-                onBlur={() => deleteState === "armed" && setDeleteState("idle")}
-                disabled={deleteState === "deleting"}
-              >
-                {deleteState === "deleting" ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 className="size-4" aria-hidden />
-                )}
-                {deleteState === "idle" ? "Delete" : "Click again to delete"}
-              </Button>
-            )}
           </div>
         </div>
       </header>
 
-      {deleteError && (
-        <p role="alert" className="pb-4 text-sm text-destructive">
-          Couldn't delete the playlist: {deleteError}
-        </p>
+      {playlistDetail && isOwnPlaylist && (
+        <PlaylistEditDialog playlist={playlistDetail} isOpen={isEditing} onClose={() => setIsEditing(false)} />
       )}
 
       {metadataQuery.isError && (
@@ -336,6 +309,10 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
       )}
 
       <div ref={collection.loadMoreRef} className="py-2" aria-hidden />
+
+      {type === "album" && collection.displayTracks.length > 0 && (
+        <AlbumCredits tracks={collection.displayTracks} isListComplete={collection.isComplete} />
+      )}
     </div>
   );
 }

@@ -138,6 +138,8 @@ export class MetadataCache {
         this.repository.removeTracks(LIKED_COLLECTION_ID, change.trackIds);
       } else if (change.type === "playlist-deleted") {
         this.repository.removeCollection(change.playlistId);
+      } else if (change.type === "playlist-renamed") {
+        this.repository.renameCollection(change.playlistId, change.title);
       } else if (change.type === "playlist-created") {
         this.repository.replaceCollection(change.playlistId, "playlist", change.title, []);
       } else {

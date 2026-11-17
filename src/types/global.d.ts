@@ -31,7 +31,9 @@ import type {
   SearchResults,
   MixRelationName,
   MixSummary,
+  PlaylistCoverChoice,
   PlaylistDetail,
+  PlaylistEditResult,
   PlaylistSummary,
 } from "@/types/media";
 
@@ -91,6 +93,12 @@ declare global {
       addTracksToPlaylist: (playlistId: string, trackIds: string[]) => Promise<void>;
       createPlaylist: (name: string) => Promise<PlaylistSummary>;
       deletePlaylist: (playlistId: string) => Promise<void>;
+      // Editing a playlist the user owns. Uploading opens a file picker in the
+      // main process and returns null when the user cancels it.
+      updatePlaylist: (playlistId: string, name: string, description: string) => Promise<PlaylistEditResult>;
+      getSuggestedPlaylistCovers: (playlistId: string) => Promise<PlaylistCoverChoice[]>;
+      setPlaylistCover: (playlistId: string, artworkId: string) => Promise<PlaylistEditResult>;
+      uploadPlaylistCover: (playlistId: string) => Promise<PlaylistEditResult | null>;
       // Lyrics and credits (they need full playback connected; see trackDetails.ts).
       getTrackLyrics: (trackId: string) => Promise<TrackLyrics | null>;
       getTrackCredits: (trackId: string) => Promise<TrackCredit[]>;

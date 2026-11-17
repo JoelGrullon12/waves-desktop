@@ -161,4 +161,4 @@ El usuario usa la versión empaquetada (AppImage; en Windows el .exe) y anotó e
 - [x] Fase 3 — Barra lateral y detalles visuales
 - [x] Fase 4 — Listas, cola y barra inferior
 - [x] Fase 5 — Now playing, letras y créditos (vía sesión web: la API v2 no las da al token de la app)
-- [ ] Fase 6 — Editar playlists y créditos del álbum
+- [x] Fase 6 — Editar playlists y créditos del álbum (portada: TIDAL la rechaza con el token de la app)

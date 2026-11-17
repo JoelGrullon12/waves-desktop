@@ -81,6 +81,19 @@ export function requirePlaylistName(value: unknown): string {
   return name;
 }
 
+// TIDAL's limit when a playlist is edited.
+const MAX_PLAYLIST_DESCRIPTION_LENGTH = 500;
+
+// Empty is allowed: it clears the description.
+export function requirePlaylistDescription(value: unknown): string {
+  if (typeof value !== "string") throw invalidArgument("playlist description");
+  const description = value.trim();
+  if (description.length > MAX_PLAYLIST_DESCRIPTION_LENGTH) {
+    throw invalidArgument(`playlist description (at most ${MAX_PLAYLIST_DESCRIPTION_LENGTH} characters)`);
+  }
+  return description;
+}
+
 // Preference keys are fixed names chosen by the app ("player.volume"); the
 // value is free text the app serializes itself.
 const PREFERENCE_KEY_PATTERN = /^[a-z][A-Za-z0-9.]{0,63}$/;
