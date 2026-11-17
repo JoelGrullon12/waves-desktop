@@ -143,13 +143,17 @@ Nota del desarrollador: se elimino la parte de playlist global ya que seria dema
   para el streaming de metadata completa al reproducir.
 - No conectado a nada aún — solo diseño.
 
-## Phase 9 — Pulido desde `details.md` 🔄 (2026-11-16)
+## Phase 9 — Pulido desde `details.md` ✅ (2026-11-16; Windows a falta de probar allí)
 
 Plan y decisiones en `specs/actual.md`. Seis bloques: configuración sin `.env` (`settings.ini`,
 secretos cifrados, carpeta de datos movible), Windows (log en archivo, arreglos a ciegas),
 barra lateral y detalles visuales, listas/cola/barra inferior, panel "Now playing" con letras
 sincronizadas y créditos (API v2: `tracks/{id}/relationships/lyrics|credits`), y edición de
 playlists (nombre, descripción, portada) con créditos del álbum.
+
+Hallazgos: letras y créditos solo los da la API v2 a la sesión web (el token de la app recibe
+vacío); la portada de playlist no se puede cambiar con el token de la app (403 en `/artworks`,
+sugeridas vacías).
 
 ## Backlog / ideas sin fase
 

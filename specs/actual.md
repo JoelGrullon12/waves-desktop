@@ -149,8 +149,28 @@ El usuario usa la versión empaquetada (AppImage; en Windows el .exe) y anotó e
 - Al final, `npm run package:linux`: el AppImage arranca y la sincronización de Turso funciona sin `.env`. Además `npm run package:win` genera el zip para que lo pruebes en Windows.
 - Un commit por fase (inglés, verbo imperativo, sin trailers) y push de `fable-dev`.
 
+## Resultado (2026-11-16)
+
+Seis fases hechas, verificadas en la app real (perfil copiado en `.tmp/profile`) y subidas a
+`fable-dev`: 31a84e7, c6ca94a, 4218756, f1e32b5, a521166, 7965dca. Paquetes 0.4.0 en `dist/`
+(AppImage, .deb, zip de Windows). El AppImage arranca sin `.env` y sincroniza con Turso
+configurado desde Settings.
+
+Hallazgos y decisiones a revisar por el usuario:
+- **Letras y créditos** salen vacíos con el token de la app; se piden con la sesión web del
+  motor (la de "Connect playback"), como hace el propio reproductor web de TIDAL. Sin esa sesión
+  el panel lo explica.
+- **Portada de playlist**: TIDAL rechaza la subida con el token de la app (403 "Access tier is
+  insufficient") y no ofrece sugeridas. El editor lo explica. El sistema de permisos bloqueó
+  probar la subida con la sesión web (saltarse el nivel de acceso de la app), y no se insistió.
+- **Primer arranque del build nuevo** con el perfil real: las preferencias pasan de SQLite a
+  `settings.ini`; si la app no se lanza desde la carpeta con `.env`, pedirá el Client ID/Secret de
+  TIDAL una vez, y Turso se configura en Settings → Play count sync.
+
 ## Pendiente heredado
-- Validar en Windows 11 el `.zip` portable (o generar el instalador NSIS allí).
+- Validar en Windows 11 el `.zip` portable 0.4.0 (o generar el instalador NSIS allí). Si la
+  ventana sale en blanco o no suena, leer `%APPDATA%\waves-desktop\logs\main.log` (Settings →
+  App data → Open folder): registra fallos de carga y el estado del audio de cada canción.
 - Probar el control remoto con un teléfono real (y abrir el puerto 47836 en firewalld si lo bloquea).
 - Probar las teclas multimedia del teclado físico (siguiente / anterior).
 - `catalog:get-mixes` devuelve 404 en esta cuenta: la fila de mixes de Home queda vacía.
