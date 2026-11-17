@@ -36,7 +36,11 @@ const SAVED_QUEUE_MAX_TRACKS = 500;
 const QUEUE_SAVE_DELAY_MS = 1000;
 // Tracks queued by hand when nothing was playing have no album or playlist
 // behind them.
-const MANUAL_QUEUE_SOURCE: PlaybackSource = { sourceType: "queue", sourceId: "manual-queue" };
+const MANUAL_QUEUE_SOURCE: PlaybackSource = {
+  sourceType: "queue",
+  sourceId: "manual-queue",
+  sourceTitle: "Your queue",
+};
 
 export interface PlayQueueOptions {
   // Turns shuffle on and starts from a shuffled position instead of
@@ -138,8 +142,19 @@ function findQueueIndex(trackId: string): number | null {
 
 function isPlaybackSource(value: unknown): value is PlaybackSource {
   if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { sourceType?: unknown; sourceId?: unknown };
-  return typeof candidate.sourceType === "string" && typeof candidate.sourceId === "string";
+  const candidate = value as {
+    sourceType?: unknown;
+    sourceId?: unknown;
+    sourceTitle?: unknown;
+    sourcePath?: unknown;
+  };
+  const isOptionalText = (field: unknown) => field == null || typeof field === "string";
+  return (
+    typeof candidate.sourceType === "string" &&
+    typeof candidate.sourceId === "string" &&
+    isOptionalText(candidate.sourceTitle) &&
+    isOptionalText(candidate.sourcePath)
+  );
 }
 
 // Tracks skipped in a row because TIDAL refuses to play them; reset as soon as

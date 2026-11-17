@@ -13,6 +13,10 @@ interface TrackContextMenuProps {
   // What "Play" does for this row (start the list it belongs to at this
   // track). Without it the track is played on its own.
   onPlay?: () => void;
+  // False for the track that is already playing (the player bar).
+  showPlay?: boolean;
+  // Element the trigger renders as (a <div> by default).
+  className?: string;
 }
 
 const ITEM_CLASS =
@@ -20,7 +24,7 @@ const ITEM_CLASS =
 const ICON_CLASS = "size-4 shrink-0 text-muted-foreground";
 
 // Right-click menu of a track row.
-export function TrackContextMenu({ track, children, onPlay }: TrackContextMenuProps) {
+export function TrackContextMenu({ track, children, onPlay, showPlay = true, className }: TrackContextMenuProps) {
   const navigate = useNavigate();
   const isLiked = useIsLiked(track.id);
   const setLiked = useLikedStore((state) => state.setLiked);
@@ -49,17 +53,19 @@ export function TrackContextMenu({ track, children, onPlay }: TrackContextMenuPr
 
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger render={<div />}>{children}</ContextMenu.Trigger>
+      <ContextMenu.Trigger render={<div className={className} />}>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Positioner align="start" alignOffset={-4} sideOffset={4} className="z-50">
           <ContextMenu.Popup
             data-testid="track-context-menu"
             className="min-w-52 overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none"
           >
-            <ContextMenu.Item className={ITEM_CLASS} onClick={play}>
-              <Play className={ICON_CLASS} aria-hidden />
-              Play
-            </ContextMenu.Item>
+            {showPlay && (
+              <ContextMenu.Item className={ITEM_CLASS} onClick={play}>
+                <Play className={ICON_CLASS} aria-hidden />
+                Play
+              </ContextMenu.Item>
+            )}
             <ContextMenu.Item className={ITEM_CLASS} onClick={() => void playNext([track])}>
               <ListStart className={ICON_CLASS} aria-hidden />
               Play next

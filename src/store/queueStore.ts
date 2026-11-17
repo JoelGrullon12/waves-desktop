@@ -13,6 +13,9 @@ import type { Track } from "@/types/track";
 export type PlaybackSource = {
   sourceType: string;
   sourceId: string;
+  // Shown as "Playing from …" (player bar, queue); the path opens it.
+  sourceTitle?: string | null;
+  sourcePath?: string | null;
 };
 
 interface QueueStore {

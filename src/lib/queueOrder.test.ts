@@ -3,6 +3,7 @@ import {
   indexAfterSkip,
   indexAfterTrackEnds,
   indexBefore,
+  indexToPlaceNext,
   insertedAfterCurrent,
   isRepeatMode,
   movedItem,
@@ -105,5 +106,29 @@ describe("movedItem", () => {
     const items = ["a", "b"];
     expect(movedItem(items, 0, 0, 0).items).toBe(items);
     expect(movedItem(items, 0, 0, 9).items).toBe(items);
+  });
+});
+
+describe("indexToPlaceNext", () => {
+  it("moves a later track to right after the current one", () => {
+    expect(indexToPlaceNext(7, 2)).toBe(3);
+    expect(movedItem(["a", "b", "c", "d", "e", "f", "g", "h"], 2, 7, 3)).toEqual({
+      items: ["a", "b", "c", "h", "d", "e", "f", "g"],
+      currentIndex: 2,
+    });
+  });
+
+  it("moves an earlier track to right after the current one", () => {
+    expect(indexToPlaceNext(0, 3)).toBe(3);
+    expect(movedItem(["a", "b", "c", "d", "e"], 3, 0, 3)).toEqual({
+      items: ["b", "c", "d", "a", "e"],
+      currentIndex: 2,
+    });
+  });
+
+  it("does nothing for the current track, the next one or without a current track", () => {
+    expect(indexToPlaceNext(3, 3)).toBeNull();
+    expect(indexToPlaceNext(4, 3)).toBeNull();
+    expect(indexToPlaceNext(4, null)).toBeNull();
   });
 });

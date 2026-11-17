@@ -587,6 +587,10 @@ track first seen by a play gets the library median.
 Waves owns the queue (`queueStore`, `src/lib/queueOrder.ts`): play order plus original order, so
 shuffle can be undone. Repeat modes: `off | one-once | one | all` (`one-once` turns itself off
 after its extra play). Volume, shuffle, repeat and the queue are restored on start.
+The queue's `PlaybackSource` carries a title and a route, shown as "Playing from …" in the player
+bar and the queue panel. Queue rows reorder by drag and drop (native HTML5 drag events) and have a
+right-click menu (Play, Place next in queue, Remove). In track lists only the ▶ button of a row
+(or Play in its menu) starts playback; clicking the row does nothing.
 
 ### Turso sync (play counts only)
 `tursoSync.ts` + pure rules in `playSync.ts`: full sync at start in the background and a push of

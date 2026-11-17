@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  collectionMembershipLabel,
   filterTracks,
   normalizeForSearch,
   searchTerms,
@@ -71,22 +70,5 @@ describe("filterTracks", () => {
 
   it("returns nothing for a blank query", () => {
     expect(filterTracks(library, "  ")).toEqual([]);
-  });
-});
-
-describe("collectionMembershipLabel", () => {
-  it("names the playlists and whether the track is liked", () => {
-    expect(collectionMembershipLabel(true, ["Road trip", "Gym"])).toBe(
-      "Liked · in 2 playlists: Road trip, Gym",
-    );
-    expect(collectionMembershipLabel(false, ["Gym"])).toBe("in 1 playlist: Gym");
-  });
-
-  it("shortens long lists and covers tracks in no playlist", () => {
-    expect(collectionMembershipLabel(false, ["A", "B", "C", "D", "E"])).toBe(
-      "in 5 playlists: A, B, C and 2 more",
-    );
-    expect(collectionMembershipLabel(false, [])).toBe("Not in a playlist");
-    expect(collectionMembershipLabel(true, [])).toBe("Liked");
   });
 });

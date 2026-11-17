@@ -88,7 +88,12 @@ function HomeSection({
 }
 
 const MOST_LISTENED_LIMIT = 10;
-const MOST_LISTENED_SOURCE = { sourceType: "stats", sourceId: "most-listened" };
+const MOST_LISTENED_SOURCE = {
+  sourceType: "stats",
+  sourceId: "most-listened",
+  sourceTitle: "Most listened",
+  sourcePath: "/",
+};
 
 // The tracks played most in this app, from the local statistics. Hidden until
 // something has been played long enough to count.

@@ -6,7 +6,12 @@ import { formatTotalDuration } from "@/lib/format";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
 import type { PlaybackSource } from "@/store/queueStore";
 
-const SONGS_SOURCE: PlaybackSource = { sourceType: "songs", sourceId: "liked-tracks" };
+const SONGS_SOURCE: PlaybackSource = {
+  sourceType: "songs",
+  sourceId: "liked-tracks",
+  sourceTitle: "Songs",
+  sourcePath: "/songs",
+};
 
 export function SongsView() {
   const collection = useTrackCollection({

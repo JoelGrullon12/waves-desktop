@@ -96,3 +96,12 @@ export function movedItem<Item>(
   }
   return { items: reordered, currentIndex: nextIndex };
 }
+
+// Where `movedItem` must put the track at `fromIndex` so it plays right after
+// the current one. Taking a track out from before the current one shifts the
+// current one back by a place, hence the two cases. Null when nothing has to
+// move (no current track, or it already plays next / is the current one).
+export function indexToPlaceNext(fromIndex: number, currentIndex: number | null): number | null {
+  if (currentIndex == null || fromIndex === currentIndex || fromIndex === currentIndex + 1) return null;
+  return fromIndex < currentIndex ? currentIndex : currentIndex + 1;
+}

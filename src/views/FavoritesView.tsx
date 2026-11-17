@@ -15,7 +15,12 @@ import {
 import { usePlayerStore } from "@/store/playerStore";
 import { usePreferencesStore } from "@/store/preferencesStore";
 
-const FAVORITES_SOURCE = { sourceType: "stats", sourceId: "favorites" };
+const FAVORITES_SOURCE = {
+  sourceType: "stats",
+  sourceId: "favorites",
+  sourceTitle: "Favorites",
+  sourcePath: "/favorites",
+};
 
 // A playlist that builds itself: the tracks played most on this app among
 // those listened to recently. It only exists here; nothing is written to TIDAL.

@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Music, Play, Shuffle, Trash2 } from "lucide-react";
+import { Loader2, Music, Play, Search, Shuffle, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { ZoomableImage } from "@/components/media/ZoomableImage";
 import { TrackList } from "@/components/tracks/TrackList";
 import { Button } from "@/components/ui/button";
 import { useTrackCollection } from "@/hooks/useTrackCollection";
 import { formatTotalDuration } from "@/lib/format";
+import { filterTracks } from "@/lib/textSearch";
 import { artworkUrl } from "@/lib/tidalImage";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
 import type { PlaybackSource } from "@/store/queueStore";
@@ -42,7 +43,6 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
   const mixType = type === "mix" ? params[mixTypeParamName ?? "mixType"] : undefined;
 
   const enabled = id != null && (type !== "mix" || mixType != null);
-  const source: PlaybackSource = { sourceType: type, sourceId: id ?? type };
 
   const metadataQuery = useQuery({
     queryKey: ["media-detail", type, mixType ?? "", id ?? ""],
@@ -67,6 +67,14 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
+
+  const location = useLocation();
+  const source: PlaybackSource = {
+    sourceType: type,
+    sourceId: id ?? type,
+    sourceTitle: metadataQuery.data?.title ?? null,
+    sourcePath: location.pathname,
+  };
 
   // Album / playlist / mix items paginate server-side; the shared collection hook
   // walks every page in the background, enriches nothing (the items endpoint
@@ -156,6 +164,16 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
     );
     void navigate("/library");
   };
+
+  // Search inside this list. It covers the tracks loaded so far (all of them
+  // once the background walk ends) and playing a match queues the matches.
+  const [filterText, setFilterText] = useState("");
+  useEffect(() => setFilterText(""), [id]);
+  const isFiltering = filterText.trim() !== "";
+  const filteredTracks = useMemo(
+    () => (isFiltering ? filterTracks(collection.displayTracks, filterText) : []),
+    [collection.displayTracks, filterText, isFiltering],
+  );
 
   const cover = header?.cover ? artworkUrl(header.cover, 640) : undefined;
   const canPlay = collection.displayTracks.length > 0 && !collection.isPreparing;
@@ -261,11 +279,47 @@ export function MediaDetailView({ type, idParamName, mixTypeParamName }: MediaDe
 
       {collection.displayTracks.length > 0 && (
         <div className="flex flex-col">
-          <TrackList
-            tracks={collection.visibleTracks}
-            queueTracks={collection.displayTracks}
-            source={source}
-          />
+          <div className="relative mb-3 max-w-sm">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={filterText}
+              onChange={(event) => setFilterText(event.target.value)}
+              onKeyDown={(event) => event.key === "Escape" && setFilterText("")}
+              placeholder={`Search in this ${header?.kind.toLowerCase() ?? "list"}`}
+              aria-label="Search in this list"
+              data-testid="list-filter"
+              className="h-9 w-full rounded-md border border-input bg-background pr-8 pl-8 text-sm outline-none focus-visible:border-ring [&::-webkit-search-cancel-button]:hidden"
+            />
+            {isFiltering && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => setFilterText("")}
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+          {isFiltering ? (
+            <>
+              <p className="mb-2 text-xs text-muted-foreground" data-testid="list-filter-count">
+                {filteredTracks.length === 1 ? "1 match" : `${filteredTracks.length} matches`}
+                {collection.isComplete ? "" : " so far (still loading the list)"}
+              </p>
+              <TrackList tracks={filteredTracks} source={source} />
+            </>
+          ) : (
+            <TrackList
+              tracks={collection.visibleTracks}
+              queueTracks={collection.displayTracks}
+              source={source}
+            />
+          )}
 
           {collection.isFetchingNextPage && (
             <div className="flex justify-center py-4">

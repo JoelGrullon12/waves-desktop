@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ArtistCardLink } from "@/components/media/ArtistCardLink";
 import { HorizontalScroll } from "@/components/media/HorizontalScroll";
 import { MediaCard } from "@/components/media/MediaCard";
+import { PlaylistMembership } from "@/components/tracks/PlaylistMembership";
 import { TrackList } from "@/components/tracks/TrackList";
 import { useMediaActions } from "@/hooks/useMediaActions";
 import { playCountLabel } from "@/hooks/useTopPlayedTracks";
 import { useTrackCollection } from "@/hooks/useTrackCollection";
 import { albumToMedia, playlistToMedia } from "@/lib/mediaCards";
-import { collectionMembershipLabel, filterTracks } from "@/lib/textSearch";
+import { filterTracks } from "@/lib/textSearch";
 import { cn } from "@/lib/utils";
 import { tidalCatalogService } from "@/services/tidalCatalogService";
 import { useIsCacheReady } from "@/store/cacheStore";
@@ -24,8 +25,18 @@ const SCOPES: Array<{ id: SearchScope; label: string }> = [
   { id: "tidal", label: "TIDAL" },
   { id: "collection", label: "My collection" },
 ];
-const TIDAL_SOURCE: PlaybackSource = { sourceType: "search", sourceId: "tracks" };
-const COLLECTION_SOURCE: PlaybackSource = { sourceType: "search", sourceId: "collection" };
+const TIDAL_SOURCE: PlaybackSource = {
+  sourceType: "search",
+  sourceId: "tracks",
+  sourceTitle: "Search",
+  sourcePath: "/search",
+};
+const COLLECTION_SOURCE: PlaybackSource = {
+  sourceType: "search",
+  sourceId: "collection",
+  sourceTitle: "Search in your collection",
+  sourcePath: "/search",
+};
 const DEBOUNCE_MS = 350;
 // Rows shown before the user asks for more; a broad term can match hundreds.
 const COLLECTION_RESULTS_STEP = 100;
@@ -140,13 +151,19 @@ function CachedCollectionResults({ query }: { query: string }) {
       new Map(
         visibleResults.map((result) => [
           result.track.id,
-          [
-            playCountLabel(playCountsQuery.data?.[result.track.id] ?? 0),
-            collectionMembershipLabel(result.isLiked, result.playlists.map((playlist) => playlist.title)),
-          ].join(" · "),
+          [playCountLabel(playCountsQuery.data?.[result.track.id] ?? 0), result.isLiked ? "Liked" : null]
+            .filter(Boolean)
+            .join(" · "),
         ]),
       ),
     [visibleResults, playCountsQuery.data],
+  );
+  const playlistColumns = useMemo(
+    () =>
+      new Map(
+        visibleResults.map((result) => [result.track.id, <PlaylistMembership playlists={result.playlists} />]),
+      ),
+    [visibleResults],
   );
 
   if (searchQuery.isPending) return <LoadingRow />;
@@ -162,6 +179,7 @@ function CachedCollectionResults({ query }: { query: string }) {
           queueTracks={matches}
           source={COLLECTION_SOURCE}
           detailByTrackId={details}
+          extraColumnByTrackId={playlistColumns}
         />
       )}
       {matches.length > visibleCount && (

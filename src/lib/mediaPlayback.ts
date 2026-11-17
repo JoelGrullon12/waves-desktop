@@ -45,6 +45,14 @@ export async function loadTracksForMedia(media: MediaSummary): Promise<Track[]> 
   );
 }
 
+// Route of the detail view of an album, playlist or mix.
+export function mediaPath(media: Pick<MediaSummary, "id" | "type" | "mixType">): string | null {
+  if (media.type === "album") return `/albums/${media.id}`;
+  if (media.type === "playlist") return `/playlists/${media.id}`;
+  if (media.type === "mix" && media.mixType) return `/mixes/${media.mixType}/${media.id}`;
+  return null;
+}
+
 // Replaces the current queue with ONLY this media's tracks (turning shuffle on
 // when requested) and starts playback — matching the "play this, discard the rest"
 // contract of the Home cards and the detail view.
@@ -53,6 +61,11 @@ export async function playMedia(media: MediaSummary, shuffle: boolean): Promise<
   if (tracks.length === 0) {
     throw new Error("This item has no streamable tracks.");
   }
-  const source: PlaybackSource = { sourceType: media.type, sourceId: media.id };
+  const source: PlaybackSource = {
+    sourceType: media.type,
+    sourceId: media.id,
+    sourceTitle: media.title,
+    sourcePath: mediaPath(media),
+  };
   await usePlayerStore.getState().playQueue(tracks, 0, source, { shuffle });
 }

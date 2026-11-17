@@ -14,6 +14,7 @@ import {
 import { Link } from "react-router";
 import { ZoomableImage } from "@/components/media/ZoomableImage";
 import { ArtistLinks } from "@/components/tracks/ArtistLinks";
+import { TrackContextMenu } from "@/components/tracks/TrackContextMenu";
 import { Button } from "@/components/ui/button";
 import { formatAudioFormat, formatDuration } from "@/lib/format";
 import type { RepeatMode } from "@/lib/queueOrder";
@@ -96,6 +97,24 @@ function LikeButton() {
   );
 }
 
+// The list the queue came from (playlist, album, Songs...), linked to its view.
+function PlayingFrom() {
+  const source = useQueueStore((state) => state.source);
+  if (!source?.sourceTitle) return null;
+  return (
+    <p className="truncate text-[0.7rem] text-muted-foreground/80" data-testid="player-source">
+      Playing from{" "}
+      {source.sourcePath ? (
+        <Link to={source.sourcePath} className="hover:text-foreground hover:underline">
+          {source.sourceTitle}
+        </Link>
+      ) : (
+        source.sourceTitle
+      )}
+    </p>
+  );
+}
+
 export function PlayerBar() {
   const currentTrack = usePlayerStore((state) => state.currentTrack);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -125,7 +144,11 @@ export function PlayerBar() {
     <footer className="flex h-20 shrink-0 items-center gap-4 border-t bg-background px-4">
       <div className="flex min-w-0 flex-1 basis-1/3 items-center gap-3">
         {currentTrack ? (
-          <>
+          <TrackContextMenu
+            track={currentTrack}
+            showPlay={false}
+            className="flex min-w-0 items-center gap-3"
+          >
             {artwork ? (
               <ZoomableImage
                 src={artwork}
@@ -149,9 +172,10 @@ export function PlayerBar() {
               <p className="truncate text-xs text-muted-foreground" data-testid="player-artist">
                 <ArtistLinks artists={currentTrack.artists} />
               </p>
+              <PlayingFrom />
             </div>
             <LikeButton />
-          </>
+          </TrackContextMenu>
         ) : (
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted">
             <ListMusic className="size-5 text-muted-foreground" aria-hidden />

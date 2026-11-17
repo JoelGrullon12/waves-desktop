@@ -32,18 +32,3 @@ export function filterTracks(tracks: Track[], query: string): Track[] {
   if (terms.length === 0) return [];
   return tracks.filter((track) => trackMatchesTerms(track, terms));
 }
-
-const MAX_PLAYLIST_NAMES_IN_LABEL = 3;
-
-// "Liked · in 2 playlists: Road trip, Gym" for a search result.
-export function collectionMembershipLabel(isLiked: boolean, playlistTitles: string[]): string {
-  const parts: string[] = [];
-  if (isLiked) parts.push("Liked");
-  if (playlistTitles.length > 0) {
-    const shown = playlistTitles.slice(0, MAX_PLAYLIST_NAMES_IN_LABEL).join(", ");
-    const hidden = playlistTitles.length - MAX_PLAYLIST_NAMES_IN_LABEL;
-    const count = playlistTitles.length === 1 ? "1 playlist" : `${playlistTitles.length} playlists`;
-    parts.push(`in ${count}: ${shown}${hidden > 0 ? ` and ${hidden} more` : ""}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : "Not in a playlist";
-}

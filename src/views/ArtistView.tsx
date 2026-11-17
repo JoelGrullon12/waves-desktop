@@ -60,7 +60,11 @@ export function ArtistView() {
     ...QUERY_OPTIONS,
   });
 
-  const source = useMemo(() => ({ sourceType: "artist", sourceId: artistId }), [artistId]);
+  const artistName = artistQuery.data?.name ?? null;
+  const source = useMemo(
+    () => ({ sourceType: "artist", sourceId: artistId, sourceTitle: artistName, sourcePath: `/artists/${artistId}` }),
+    [artistId, artistName],
+  );
   const topTracks = tracksQuery.data?.tracks ?? [];
   const visibleTracks = showAllTracks ? topTracks : topTracks.slice(0, TOP_TRACKS_COLLAPSED);
 
