@@ -62,6 +62,8 @@ interface PlayerStore {
   error: string | null;
   notice: string | null;
   isQueueOpen: boolean;
+  // The full-screen "Now playing" panel (opened from the player bar).
+  isNowPlayingOpen: boolean;
   init: () => void;
   playQueue: (
     tracks: Track[],
@@ -85,6 +87,7 @@ interface PlayerStore {
   showNotice: (message: string) => void;
   stopAndReset: () => Promise<void>;
   setQueueOpen: (open: boolean) => void;
+  setNowPlayingOpen: (open: boolean) => void;
 }
 
 // Order used when shuffle is on: smart shuffle (least played first) unless the
@@ -432,6 +435,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     error: null,
     notice: null,
     isQueueOpen: false,
+    isNowPlayingOpen: false,
 
     init: () => {
       if (get().isInitialized) return;
@@ -465,7 +469,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         playIndex = 0;
       }
       useQueueStore.getState().setQueue(playOrder, playIndex, source, tracks);
-      set({ isQueueOpen: false });
+      // The queue stays beside the "Now playing" panel.
+      set({ isQueueOpen: get().isNowPlayingOpen });
       await startAt(playIndex);
     },
 
@@ -624,9 +629,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         audioFormat: null,
         error: null,
         isQueueOpen: false,
+        isNowPlayingOpen: false,
       });
     },
 
     setQueueOpen: (open) => set({ isQueueOpen: open }),
+    // Opening it also opens the queue beside it.
+    setNowPlayingOpen: (open) => set(open ? { isNowPlayingOpen: true, isQueueOpen: true } : { isNowPlayingOpen: false }),
   };
 });

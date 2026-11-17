@@ -48,3 +48,23 @@ export interface CachedSearchResult {
   // The user's playlists that contain the track.
   playlists: Array<{ id: string; title: string }>;
 }
+
+// Lyrics of a track (Musixmatch, through TIDAL). `lrcText` has a timestamp per
+// line ("[01:02.34]text") and allows following the song; `text` is the plain
+// version. Either can be missing.
+export interface TrackLyrics {
+  text: string | null;
+  lrcText: string | null;
+  provider: string | null;
+  isRightToLeft: boolean;
+}
+
+// One person and what they did on a track ("Freddie Mercury", "Vocal").
+export interface TrackCredit {
+  name: string;
+  role: string;
+  // Broad group of the role: Performer, Producer, Songwriter, Engineer...
+  category: string | null;
+  // Present when the person has a TIDAL artist page.
+  artistId: string | null;
+}

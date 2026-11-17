@@ -144,6 +144,7 @@ truth (do not duplicate it into docs). Channel families:
 - `app-data:*` — data folder (info, open, move through a native folder picker, back to default)
 - `auth:*` — Dashboard app session (login, logout, is-authenticated). No handler returns a token.
 - `web-auth:*` — first-party web session used by the playback engine (login, logout, is-connected)
+- `catalog:get-lyrics` / `catalog:get-track-credits` — lyrics and credits (web session, see below)
 - `catalog:*` / `library:*` — TIDAL v2 reads (search, albums, playlists, mixes, artists, liked
   tracks, releases feed, collection albums/artists) and writes (like/unlike, add to playlist,
   create/delete playlist)
@@ -290,6 +291,14 @@ log out and log in once to re-mint.
 - Artwork: the short `coverArt` id 403s on the CDN — resolve the real href from the artwork
   resource's `attributes.files` (see `artworkFileHref` in `electron/main/catalog.ts`).
 - Search and items URLs now request `include=...coverArt`.
+- **Lyrics and credits** (`/tracks/{id}/relationships/lyrics?include=lyrics`,
+  `/tracks/{id}/relationships/credits?include=credits,credits.category`) answer **empty to the
+  developer app token** and full data to the first-party web session (verified 2026-11-16 on
+  several catalog tracks; TIDAL's own web player requests `include=lyrics` the same way). So
+  `trackDetails.ts` sends exactly these two requests with the web session (`fetchJson(url, "web")`
+  in `tidalApiClient.ts`); the token stays in the main process. Lyrics carry `lrcText` (synced,
+  Musixmatch) and `text`; credits are `name` + `role` with `artist` and `category`
+  (`artistRoles`) relationships. There are no album credits: an album's are its tracks' credits.
 
 ### Liked tracks (`/userCollectionTracks/me/relationships/items`) — hard rules
 
@@ -362,6 +371,7 @@ waves-desktop/
 │   │   ├── remoteControl.ts        # Phone remote server (node:http + ws) + IPC
 │   │   ├── remoteControlPage.ts    # The self-contained page a phone opens
 │   │   ├── remoteProtocol.ts       # Pure validation of remote commands/state and of the token
+│   │   ├── trackDetails.ts         # Lyrics and credits of a track (web session) + IPC
 │   │   ├── metadataCacheRepository.ts # Local library copy: tables and search
 │   │   └── metadataCache.ts        # Local library copy: refresh job, mirroring of changes + IPC
 │   │
@@ -386,7 +396,7 @@ waves-desktop/
     │   ├── layout/                 # AppShell, Sidebar, SidebarPlaylists
     │   ├── media/                  # MediaCard, MediaGrid, HorizontalScroll, ArtistCardLink, SortControl,
     │   │                           #   ZoomableImage (click-to-enlarge artwork viewer)
-    │   ├── player/                 # PlayerBar, QueuePanel
+    │   ├── player/                 # PlayerBar, QueuePanel, NowPlayingPanel (track details, synced lyrics)
     │   ├── settings/               # One component per Settings section (sync, remote, cache, TIDAL app, app data)
     │   ├── tracks/                 # TrackList, TrackContextMenu, AddToPlaylistsDialog, ArtistLinks
     │   └── ui/                     # shadcn/ui primitives

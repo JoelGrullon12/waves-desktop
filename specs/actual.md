@@ -160,5 +160,5 @@ El usuario usa la versión empaquetada (AppImage; en Windows el .exe) y anotó e
 - [x] Fase 2 — Windows y log en archivo (a ciegas; falta probar en Windows con `logs/main.log`)
 - [x] Fase 3 — Barra lateral y detalles visuales
 - [x] Fase 4 — Listas, cola y barra inferior
-- [ ] Fase 5 — Now playing, letras y créditos
+- [x] Fase 5 — Now playing, letras y créditos (vía sesión web: la API v2 no las da al token de la app)
 - [ ] Fase 6 — Editar playlists y créditos del álbum

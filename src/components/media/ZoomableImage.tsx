@@ -15,11 +15,15 @@ function ImageViewer({ src, alt, onClose }: { src: string; alt: string; onClose:
   const [currentSource, setCurrentSource] = useState(() => largeArtworkUrl(src));
 
   useEffect(() => {
+    // Captured first and stopped, so Escape closes only the viewer and not the
+    // panel underneath it.
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onClose();
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => window.removeEventListener("keydown", closeOnEscape, true);
   }, [onClose]);
 
   return createPortal(

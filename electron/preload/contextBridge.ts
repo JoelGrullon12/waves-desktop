@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld("api", {
   createPlaylist: (name: string) => ipcRenderer.invoke("catalog:create-playlist", name),
   deletePlaylist: (playlistId: string) => ipcRenderer.invoke("catalog:delete-playlist", playlistId),
 
+  getTrackLyrics: (trackId: string) => ipcRenderer.invoke("catalog:get-lyrics", trackId),
+  getTrackCredits: (trackId: string) => ipcRenderer.invoke("catalog:get-track-credits", trackId),
+
   getPreferences: () => ipcRenderer.invoke("preferences:get-all"),
   setPreference: (key: string, value: string) => ipcRenderer.invoke("preferences:set", key, value),
   saveQueue: (trackIds: string[]) => ipcRenderer.invoke("queue:save", trackIds),
@@ -106,7 +109,7 @@ contextBridge.exposeInMainWorld("api", {
   },
 
   // Only answered when the app runs with WAVES_DEBUG_API=1 (see tidalApiClient.ts).
-  debugApiGet: (path: string) => ipcRenderer.invoke("debug:api-get", path),
+  debugApiGet: (path: string, session?: "app" | "web") => ipcRenderer.invoke("debug:api-get", path, session),
 
   playerPlay: (trackId: string) => ipcRenderer.invoke("player:play", trackId),
   playerSetNext: (trackId: string | null) => ipcRenderer.invoke("player:set-next", trackId),

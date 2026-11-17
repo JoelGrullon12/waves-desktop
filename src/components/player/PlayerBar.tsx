@@ -130,6 +130,8 @@ export function PlayerBar() {
   const toggleMute = usePlayerStore((state) => state.toggleMute);
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle);
   const isQueueOpen = usePlayerStore((state) => state.isQueueOpen);
+  const isNowPlayingOpen = usePlayerStore((state) => state.isNowPlayingOpen);
+  const setNowPlayingOpen = usePlayerStore((state) => state.setNowPlayingOpen);
   const setQueueOpen = usePlayerStore((state) => state.setQueueOpen);
   const shuffleEnabled = useQueueStore((state) => state.shuffleEnabled);
 
@@ -141,7 +143,15 @@ export function PlayerBar() {
   const albumId = currentTrack?.album?.id;
 
   return (
-    <footer className="flex h-20 shrink-0 items-center gap-4 border-t bg-background px-4">
+    <footer
+      className={`flex h-20 shrink-0 items-center gap-4 border-t bg-background px-4 ${currentTrack ? "cursor-pointer" : ""}`}
+      data-testid="player-bar"
+      onClick={(event) => {
+        // Controls, links and sliders keep their own click.
+        if (!currentTrack || (event.target as HTMLElement).closest("button, a, input, [role='menuitem']")) return;
+        setNowPlayingOpen(!isNowPlayingOpen);
+      }}
+    >
       <div className="flex min-w-0 flex-1 basis-1/3 items-center gap-3">
         {currentTrack ? (
           <TrackContextMenu

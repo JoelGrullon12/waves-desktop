@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   artworkFileHref,
+  creditsFromDocument,
+  lyricsFromDocument,
   indexResources,
   iso8601DurationToSeconds,
   mediaTagToQuality,
@@ -182,5 +184,89 @@ describe("tracksFromTracksDocument", () => {
     };
 
     expect(tracksFromTracksDocument(document).map((track) => track.id)).toEqual(["t2", "t1"]);
+  });
+});
+
+describe("lyricsFromDocument", () => {
+  const lyricsResource = (attributes: Record<string, unknown>): ResourceObject => ({
+    id: "ly1",
+    type: "lyrics",
+    attributes: { technicalStatus: "OK", direction: "LEFT_TO_RIGHT", ...attributes },
+  });
+
+  it("reads the synced and plain text and the provider", () => {
+    const document = {
+      data: [{ id: "ly1", type: "lyrics" }],
+      included: [
+        lyricsResource({
+          text: "Is this the real life?\n",
+          lrcText: "[00:00.25]Is this the real life?\n",
+          provider: { source: "THIRD_PARTY", name: "MUSIXMATCH" },
+        }),
+      ],
+    };
+    expect(lyricsFromDocument(document)).toEqual({
+      text: "Is this the real life?",
+      lrcText: "[00:00.25]Is this the real life?",
+      provider: "MUSIXMATCH",
+      isRightToLeft: false,
+    });
+  });
+
+  it("returns null when there are none or they are not ready", () => {
+    expect(lyricsFromDocument({ data: [], included: [] })).toBeNull();
+    expect(
+      lyricsFromDocument({
+        data: [{ id: "ly1", type: "lyrics" }],
+        included: [lyricsResource({ technicalStatus: "PROCESSING", text: "x" })],
+      }),
+    ).toBeNull();
+    expect(
+      lyricsFromDocument({ data: [{ id: "ly1", type: "lyrics" }], included: [lyricsResource({ text: "  " })] }),
+    ).toBeNull();
+  });
+
+  it("flags right-to-left lyrics", () => {
+    const document = {
+      data: [{ id: "ly1", type: "lyrics" }],
+      included: [lyricsResource({ text: "شعر", direction: "RIGHT_TO_LEFT" })],
+    };
+    expect(lyricsFromDocument(document)?.isRightToLeft).toBe(true);
+  });
+});
+
+describe("creditsFromDocument", () => {
+  it("keeps TIDAL's order and resolves the category and artist", () => {
+    const document = {
+      data: [
+        { id: "c1", type: "credits" },
+        { id: "c2", type: "credits" },
+        { id: "c3", type: "credits" },
+      ],
+      included: [
+        {
+          id: "c2",
+          type: "credits",
+          attributes: { name: "Roy Thomas Baker", role: "Producer" },
+          relationships: { category: { data: { id: "2", type: "artistRoles" } } },
+        },
+        {
+          id: "c1",
+          type: "credits",
+          attributes: { name: "Freddie Mercury", role: "Vocal" },
+          relationships: {
+            category: { data: { id: "11", type: "artistRoles" } },
+            artist: { data: { id: "9664", type: "artists" } },
+          },
+        },
+        { id: "c3", type: "credits", attributes: { name: "", role: "Drums" } },
+        { id: "11", type: "artistRoles", attributes: { name: "Performer" } },
+        { id: "2", type: "artistRoles", attributes: { name: "Producer" } },
+      ],
+    };
+    expect(creditsFromDocument(document)).toEqual([
+      { name: "Freddie Mercury", role: "Vocal", category: "Performer", artistId: "9664" },
+      { name: "Roy Thomas Baker", role: "Producer", category: "Producer", artistId: null },
+    ]);
   });
 });

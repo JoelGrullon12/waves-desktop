@@ -19,6 +19,7 @@ import {
 } from "./remoteControl";
 import { configureTrustedRenderer } from "./secureIpc";
 import { registerCredentialHandlers } from "./tidalAppCredentials";
+import { registerTrackDetailsHandlers } from "./trackDetails";
 import {
   PLAYER_MEDIA_KEY_CHANNEL,
   PLAYER_STATE_CHANNEL,
@@ -220,6 +221,7 @@ app.whenReady().then(async () => {
   registerCredentialHandlers();
   registerAuthHandlers();
   registerCatalogHandlers();
+  registerTrackDetailsHandlers();
   registerLibraryHandlers();
   registerWebSessionHandlers();
   registerPlayerHandlers();

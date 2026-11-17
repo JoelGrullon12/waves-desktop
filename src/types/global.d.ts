@@ -14,7 +14,14 @@ import type {
   SyncConfigResult,
   SyncStatus,
 } from "@/types/player";
-import type { FavoriteTracksPage, LikedTrackIdsPage, Track, TrackPage } from "@/types/track";
+import type {
+  FavoriteTracksPage,
+  LikedTrackIdsPage,
+  Track,
+  TrackCredit,
+  TrackLyrics,
+  TrackPage,
+} from "@/types/track";
 import type {
   AlbumDetail,
   AlbumPage,
@@ -84,6 +91,9 @@ declare global {
       addTracksToPlaylist: (playlistId: string, trackIds: string[]) => Promise<void>;
       createPlaylist: (name: string) => Promise<PlaylistSummary>;
       deletePlaylist: (playlistId: string) => Promise<void>;
+      // Lyrics and credits (they need full playback connected; see trackDetails.ts).
+      getTrackLyrics: (trackId: string) => Promise<TrackLyrics | null>;
+      getTrackCredits: (trackId: string) => Promise<TrackCredit[]>;
       // Local settings (settings.ini) and the saved play queue (SQLite).
       getPreferences: () => Promise<Record<string, string>>;
       setPreference: (key: string, value: string) => Promise<void>;

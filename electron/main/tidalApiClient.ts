@@ -1,6 +1,7 @@
 import axios from "axios";
 import { getValidAccessToken } from "./auth";
 import { handleTrusted } from "./secureIpc";
+import { getValidWebAccessToken } from "./webSessionAuth";
 
 // HTTP access to the TIDAL v2 API (JSON:API), shared by every module that
 // talks to it. All API traffic runs through the main process so the access
@@ -94,9 +95,32 @@ async function withAccountCountry(url: string, accessToken: string): Promise<str
 
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
-export async function requestJson(method: HttpMethod, url: string, body?: unknown): Promise<unknown> {
-  const accessToken = await getValidAccessToken();
-  if (!accessToken) throw new Error("Not authenticated: no valid TIDAL access token.");
+// Which sign-in a request uses. "app" is the user's own developer app (every
+// catalog and library call). "web" is the first-party web session of the
+// playback engine: TIDAL licenses lyrics and credits only to its own clients,
+// so the same v2 endpoints answer empty for the developer app. The web token
+// never leaves the main process, like the other one.
+export type TidalSession = "app" | "web";
+
+async function sessionAccessToken(session: TidalSession): Promise<string> {
+  const accessToken = session === "web" ? await getValidWebAccessToken() : await getValidAccessToken();
+  if (!accessToken) {
+    throw new Error(
+      session === "web"
+        ? "Full playback is not connected: lyrics and credits need it."
+        : "Not authenticated: no valid TIDAL access token.",
+    );
+  }
+  return accessToken;
+}
+
+export async function requestJson(
+  method: HttpMethod,
+  url: string,
+  body?: unknown,
+  session: TidalSession = "app",
+): Promise<unknown> {
+  const accessToken = await sessionAccessToken(session);
   const requestUrl = await withAccountCountry(url, accessToken);
 
   for (let attempt = 0; ; attempt++) {
@@ -139,8 +163,8 @@ export async function requestJson(method: HttpMethod, url: string, body?: unknow
   }
 }
 
-export function fetchJson(url: string): Promise<unknown> {
-  return requestJson("GET", url);
+export function fetchJson(url: string, session: TidalSession = "app"): Promise<unknown> {
+  return requestJson("GET", url, undefined, session);
 }
 
 // Development aid, off unless WAVES_DEBUG_API=1: lets scripts/driveApp.mjs read
@@ -148,8 +172,8 @@ export function fetchJson(url: string): Promise<unknown> {
 // answers before code is written against it. Read-only and TIDAL-only.
 export function registerApiExplorer(): void {
   if (process.env["WAVES_DEBUG_API"] !== "1") return;
-  handleTrusted("debug:api-get", (_event, path) => {
+  handleTrusted("debug:api-get", (_event, path, session) => {
     if (typeof path !== "string" || !path.startsWith("/")) throw new Error("Invalid API path.");
-    return fetchJson(`${TIDAL_CATALOG_BASE}${path}`);
+    return fetchJson(`${TIDAL_CATALOG_BASE}${path}`, session === "web" ? "web" : "app");
   });
 }

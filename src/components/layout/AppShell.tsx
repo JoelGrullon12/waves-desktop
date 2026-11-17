@@ -2,6 +2,7 @@ import { CircleAlert } from "lucide-react";
 import { useEffect } from "react";
 import { Outlet } from "react-router";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { NowPlayingPanel } from "@/components/player/NowPlayingPanel";
 import { PlayerBar } from "@/components/player/PlayerBar";
 import { QueuePanel } from "@/components/player/QueuePanel";
 import { AddToPlaylistsDialog } from "@/components/tracks/AddToPlaylistsDialog";
@@ -30,6 +31,7 @@ export function AppShell() {
         <main className="min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
+        <NowPlayingPanel />
         <QueuePanel />
       </div>
 
