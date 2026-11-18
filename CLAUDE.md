@@ -12,4 +12,4 @@
 - Commits en inglés: el mensaje empieza con un verbo en imperativo (`Add`, `Fix`, `Remove`, `Update`...), sin prefijos tipo `feat(scope):`/`fix:`. Sin trailers de atribución (ni `Co-Authored-By` ni `Claude-Session`).
 - Node >= 22.12 (`.nvmrc`). En este entorno el shell trae Node 26 por defecto: ejecuta los comandos con `source ~/.nvm/nvm.sh && nvm exec 22 <cmd>`. Verificación: `npm run verify` (typecheck + lint + test + build).
 - No introducir Tauri/Rust; usar siempre el fork castlabs de Electron y la API v2 de TIDAL (ver `AGENTS.md`).
-- El CDM de Widevine y los tokens/credenciales no se publican: el repo debe seguir privado.
+- El repo es **público** (desde 2026-11-17): el CDM de Widevine, `.env`, `app-secrets` y cualquier token/credencial nunca se suben a git ni a una release.

@@ -7,7 +7,7 @@
 > **La Fase 3 se completa ANTES que las features especiales (4-8):** el objetivo es
 > un reproductor de suscripción completo antes de añadir nada más.
 
-Última actualización: 2026-11-16 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
+Última actualización: 2026-11-17 · Leyenda: ✅ completada · 🔄 en proceso · ⏳ planeada
 
 ## Completadas
 
@@ -157,13 +157,129 @@ sugeridas vacías). En Windows la pantalla en blanco del `.exe` era la ruta `fil
 con `HashRouter`) y la falta de sonido, la licencia Widevine negada sin firma VMP de producción
 (`ACCESS_DENIED`, S6007): se firma con castlabs EVS (`npm run vmp:sign` y hook `afterSign`).
 
+## Phase 10 — Publicación en GitHub y actualizaciones automáticas 🔄 (sesión en `specs/actual.md`)
+
+> Origen (2026-11-17): el repo es público y la 0.5.1 se sube a mano como primera release de
+> GitHub. La siguiente versión trae `electron-updater` (dependencia aceptada) con **GitHub
+> Releases como servidor de actualizaciones**: sin servidor propio y, al ser público, sin token
+> dentro de la app. La 0.5.1 no lleva el updater, así que la primera versión con él se instala a
+> mano una vez; desde ahí se actualiza sola.
+
+**Cómo funciona (acordado)**
+- `electron-builder.yml` gana `publish: { provider: github, owner: JoelGrullon12, repo: waves-desktop }`.
+  Al publicar se suben a la release: `*.exe` + `*.exe.blockmap` + `latest.yml` (Windows) y
+  `*.AppImage` + `latest-linux.yml` (Linux). La release tiene que quedar **publicada**: el
+  updater ignora borradores, y las pre-releases solo con el canal beta encendido.
+- La app lee el `latest.yml` de la última release y lo compara con `app.getVersion()` (semver).
+- Lo que descarga es **el instalador nsis de la versión nueva**, no la carpeta desempaquetada,
+  pero en **diferencial**: con los `.blockmap` de la versión vieja y la nueva baja solo los bloques
+  que cambiaron y reconstruye el instalador a partir del de la versión actual (nsis lo guarda en
+  `%LOCALAPPDATA%\waves-desktop-updater`). Si el diferencial falla, baja el instalador entero.
+  Verifica el sha512 antes de usarlo. Los binarios de Electron casi nunca cambian, así que la
+  descarga suele ser una fracción de los ~125 MB; cuando se actualiza el fork de Electron, casi todo.
+- El instalador nsis **no** es diferencial: corre en silencio y reemplaza todos los archivos del
+  programa (segundos). No toca `userData` ni la carpeta de datos (`settings.ini`, BD,
+  `app-secrets`, sesión web, CDM de Widevine).
+- Linux: la AppImage se reemplaza por la nueva (también con blockmap). El `.deb` no se
+  autoactualiza; en Bazzite (inmutable) la vía es la AppImage.
+- Los `.blockmap` de releases anteriores deben quedarse en GitHub (el diferencial los necesita).
+
+**Comportamiento (decidido 2026-11-17, ver Decisiones)**
+- Primera versión con updater: **0.6.0**.
+- Busca al arrancar y cada 6 h (más un botón en Settings); **pregunta antes de descargar**
+  ("Versión X disponible · Descargar"); descargada, "Reiniciar para actualizar" o se instala al cerrar.
+- Canal beta opcional (interruptor en Settings, `allowPrerelease`); por defecto solo estables.
+- Publicación: cada máquina sube a una release **en borrador** del mismo tag (Windows desde el PC con
+  Windows por la firma VMP, Linux desde Bazzite) y el usuario la publica a mano en GitHub.
+- Linux: AppImage + `.deb` en cada release; solo la AppImage se autoactualiza.
+
+**Que hay que hacer**
+- [ ] Release 0.5.1 a mano (primera de GitHub, sin updater): revisión de repo público (sin secretos
+  en el historial), tag `v0.5.1`, AppImage + `.deb` de Linux, `.exe` firmado con VMP, notas.
+  **Sesión 2026-11-17** (`specs/actual.md`); el resto de la fase (updater) va en una sesión posterior.
+- [ ] Dependencia `electron-updater`.
+- [ ] `publish` y `artifactName` sin espacios en `electron-builder.yml` (GitHub cambia los espacios
+  de los assets por puntos y el `latest.yml` dejaría de apuntar al archivo).
+- [ ] `electron/main/appUpdater.ts`: búsqueda, descarga, instalación y eventos; IPC `updater:*` con
+  `handleTrusted`; todo al `main.log`. Sin efecto en `npm run dev` (app sin empaquetar).
+- [ ] UI: estado en Settings (versión actual, "Buscar actualizaciones", "Descargar", progreso,
+  "Reiniciar para actualizar", interruptor beta) y un aviso discreto en la barra lateral cuando hay
+  una versión disponible o lista para instalar.
+- [ ] `scripts/packageApp.mjs`: modo publicar (`--publish`) con un `GH_TOKEN` de escritura del
+  desarrollador en el entorno (nunca empaquetado). En Windows la firma VMP sigue siendo obligatoria:
+  no se publica nada con `WAVES_SKIP_VMP=1`.
+- [ ] Docs: `AGENTS.md` (updater, publicación, repo público) y `README.md` (cómo sacar una release).
+- [ ] Prueba real: versión con updater instalada → publicar una versión de prueba → se actualiza en
+  Windows y en la AppImage, sigue sonando (VMP) y conserva datos y sesión.
+
+**Criterio de aceptacion.** Desde una versión instalada con el updater, publicar una release en
+GitHub basta para que Windows (nsis) y Linux (AppImage) se actualicen sin reinstalar a mano,
+reproduzcan FULL y conserven configuración, BD y sesión.
+
+## Phase 11 — Detalles extra y mejora del control remoto ⏳
+
+> Origen: `details.md` (notas personales, fuera de git; 2026-11-17). Se hace **después de la
+> Phase 10**. Las propuestas del final dependen de lo que exponga la API de TIDAL: primero se
+> investigan y se decide con el usuario.
+
+**Detalles visuales**
+- El panel de la cola empuja y estrecha el contenido en vez de taparlo (el like de las filas sigue visible).
+- Al cerrar "Now playing" se cierra también la cola si se abrió con él; si ya estaba abierta, se queda.
+- Animaciones de cierre: "Now playing" baja al cerrarse; la cola entra y sale de lado.
+- Pantallas grandes: la info de la canción (portada, título, artista) se centra en alto y en ancho,
+  sin tapar la cola.
+- Portada de la pantalla de detalle (playlist/álbum/artista) un 20 % más grande.
+- Barra lateral de playlists un 15 % más ancha y sus portadas un 25 % más grandes.
+- Scrollbars propias, discretas y minimalistas, que siguen el tema claro/oscuro (cola, letras, etc.).
+- Barra de título propia (ventana sin marco): logo, minimizar, maximizar y cerrar; fuera la barra
+  blanca con menús File/Edit en Linux y Windows.
+- Library: el combobox de orden al lado del switch de tipo.
+- Barras de progreso y volumen: tramo recorrido relleno; el círculo oculto hasta el hover y a la
+  mitad de tamaño.
+
+**Features y QOL**
+- Letras: al desplazarse a mano se desincronizan y se quedan ahí; un botón arriba a la derecha
+  vuelve a sincronizarlas (como el cliente oficial).
+- Ordenar canciones por nombre, artista, álbum, duración, etc.
+- Diálogo "Añadir a playlists": crear una playlist nueva y quitar de playlists en el mismo diálogo.
+- Selección de canciones con clic, Ctrl y Shift; añadir la selección a playlists (ignorando las que
+  ya la tengan) o crear una playlist nueva con ella.
+- Volver atrás a la búsqueda conserva la búsqueda y sus resultados.
+- Compartir la configuración entre clientes a través de la BD online (Turso).
+
+**Features extra**
+- Segundo plano con icono en la bandeja: cerrar la ventana deja sonando la música y el servidor del
+  control remoto; la bandeja reabre la ventana o cierra la app. Ajuste para elegir entre ocultar a
+  la bandeja o cerrar.
+- Botones atrás/adelante arriba a la izquierda del panel principal (no en la barra lateral), como
+  un navegador. **Requisito de ligereza:** el historial guarda solo referencias de páginas, no
+  sus datos; al volver, la página se carga de nuevo (de la API o del disco/BD según su origen).
+  Gracia de ~1 min: los datos de la página anterior/siguiente se liberan si el usuario no vuelve en
+  ese tiempo. El motor de reproducción no cambia (si TIDAL precarga la siguiente, que siga).
+- Compartir la cola actual entre dispositivos a través de la BD online, para dejar de escuchar en
+  uno y seguir en otro.
+
+**Control remoto (teléfono)**
+- Rediseño en la línea de la app de escritorio, con los mismos iconos (sin emojis).
+- Shuffle y repeat junto a anterior/siguiente.
+- Info de la canción actual: conteo, playlists que la contienen, like (con poner/quitar) y créditos.
+
+**Propuestas (investigar antes de planear)**
+- Marcas de explícito / creado con IA en canciones y álbumes, si la API lo expone.
+- Versiones explícita/limpia de un álbum, para elegir una.
+- Portadas animadas de álbumes.
+- Recomendaciones de canciones al final de las playlists, si TIDAL las expone.
+- Icono de la app en Wayland (hoy sale el genérico): `desktopName` + `linux.syncDesktopName: true`
+  en electron-builder (antes en el backlog).
+- Ver y controlar la cola desde el control remoto: proponer plan y medir el peso en el WebSocket;
+  si la cola entera pesa demasiado, solo un tramo cercano.
+- Letras sincronizadas en el control remoto, con la misma evaluación de peso.
+
 ## Backlog / ideas sin fase
 
 - **Plan B de reproducción:** `web-auth:get-playback-stream` ya consulta
   `playbackinfopostpaywall/v4` (audioquality=LOSSLESS, assetpresentation=FULL, patrón de
   hifi-api). Solo como alternativa si TIDAL cambia v2 o revoca scopes. No implementado.
-- **`desktopName` + `linux.syncDesktopName: true`** en electron-builder (asociar la ventana
-  al .desktop; aviso no bloqueante en el empaquetado).
 - **Pull-to-refresh / refetch por tiempo** de la colección (puede subsumirse en la Fase 3).
 - Probar el control remoto con un teléfono real y las teclas multimedia del teclado físico.
 - `catalog:get-mixes` devuelve 404 en esta cuenta: la fila de mixes de Home queda vacía.
@@ -203,7 +319,8 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 
 - ~~**Fase C / CDM**~~ (resuelta, ver Decisiones): si el CDM descargado por la app (fuente oficial de Google) se instala bien, ¿se adelanta el vendorizado/instalación automática? Recomendado: no en la sesión 2.
 
-(Ninguna: las de Phase R se resolvieron el 2026-11-15, ver Decisiones.)
+**Phase 10 — Publicación y actualizaciones (2026-11-17):** las 5 preguntas se resolvieron el
+2026-11-17 (ver Decisiones). Queda la licencia del repo público, abierta en `specs/actual.md`.
 
 ## Decisiones tomadas
 
@@ -213,7 +330,13 @@ inicia sesión y reproduce FULL sin pasos manuales ocultos; el paquete arranca s
 - **Most Listened (2026-10-18):** se pospone a la Fase 4; no hay endpoint público en TIDAL.
 - **Calidad (2026-10-18):** Vitest + ESLint + `verify`.
 - **Credenciales (2026-10-18):** se piden en el primer arranque, no se empaquetan.
-- **Widevine (2026-10-18, revisada 2026-10-23):** ya no se vendoriza el CDM; se instala desde el CRX oficial cacheado. El repo debe seguir privado.
+- **Widevine (2026-10-18, revisada 2026-10-23):** ya no se vendoriza el CDM; se instala desde el CRX oficial cacheado. (Antes: "el repo debe seguir privado"; ver "Repo público".)
+- **Repo público (2026-11-17):** el repo pasa a ser público y la app se publica en GitHub Releases. El CDM, `.env`, `app-secrets` y los tokens siguen fuera de git y de las releases.
+- **`electron-updater` (2026-11-17):** se acepta como excepción a "cero dependencias nuevas" (diferencial con blockmap e instalación en Windows no compensan a mano). Servidor de actualizaciones: GitHub Releases (Phase 10).
+- **Updater: versión, descarga y frecuencia (2026-11-17):** primera versión con updater 0.6.0; pregunta antes de descargar y, descargada, se instala al reiniciar o al cerrar; busca al arrancar y cada 6 h, más botón manual.
+- **Canal beta (2026-11-17):** interruptor en Settings para recibir pre-releases (`allowPrerelease`); apagado no baja de versión, espera a la siguiente estable.
+- **Publicación de releases (2026-11-17):** borrador en GitHub al que suben ambas máquinas; el usuario lo publica a mano. Sin CI (la firma VMP necesita la cuenta EVS). Linux: AppImage (autoactualizable) + `.deb` (manual).
+- **Uso personal con repo público (2026-11-17):** la regla "Personal use only / nunca se distribuye" de `AGENTS.md` se reescribe: proyecto personal con repo y releases públicos; cada usuario pone su propia cuenta TIDAL y credenciales del dashboard; nada de TIDAL (CDM, streams, tokens) va en el repo ni en las releases.
 - **`--no-zygote` (2026-11-14):** flag de Linux para no depender de un zygote que puede morir (ventana de login en blanco).
 - **Sin esquivar controles de TIDAL (2026-11-14):** no se falsea `Origin`/`Referer` ni la huella de la ventana; el audio completo se obtiene con el propio reproductor web de TIDAL (Phase R).
 - **Primer arranque sin red (2026-10-23):** se acepta quedar sin DRM hasta el siguiente arranque con red (la app no funciona offline).

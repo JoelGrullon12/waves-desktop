@@ -5,12 +5,14 @@
 # Widevine CDM bundled in the binary. Without electronDist, electron-builder
 # resolves the binary from the standard Electron releases on
 # github.com/electron/electron and 404s on the `+wvcus` version string.
-# Pointing it at the local dist (already downloaded by scripts/ensureElectron.mjs)
-# makes packaging copy the fork binary instead of downloading anything.
+# Pointing it at a local dist makes packaging copy the fork binary instead of
+# downloading anything.
 #
-# Because the local dist is single-platform, package on the matching OS:
-#   npm run package:linux  -> run on the Linux machine (this repo's primary env)
-#   npm run package:win    -> run on a Windows machine
+# The value below is only the default: `npm run package:<linux|win>` goes
+# through scripts/packageApp.mjs, which downloads the Castlabs build of the
+# TARGET platform and overrides it with `-c.electronDist=...`, so either
+# platform can be packaged from either machine (the Windows nsis installer and
+# its VMP signature still need Windows, or Wine on Linux).
 
 appId: com.personal.waves-desktop
 productName: Waves Desktop
